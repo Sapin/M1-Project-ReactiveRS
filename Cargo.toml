@@ -1,0 +1,6 @@
+[package]
+name = "projet_reactive"
+version = "0.1.0"
+authors = ["David Reboullet <david.reboullet@ens.fr>"]
+
+[dependencies]
