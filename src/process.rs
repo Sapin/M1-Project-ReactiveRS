@@ -19,6 +19,11 @@ pub trait Process: 'static {
         Constant {value : v}
     }
 
+    fn pause (self) -> Paused <Self>
+    where Self: Sized {
+        Paused {process : self}
+    }
+
 }
 
 //   ____                _              _   
@@ -33,13 +38,59 @@ pub struct Constant<V> {
 }
 
 impl<V> Process for Constant<V>
-    where V: 'static
+where V: 'static
 {
     type Value = V;
 
     fn call<C> (self, runtime: &mut Runtime, next: C)
     where C: Continuation<Self::Value> {
         next.call (runtime, self.value)
+    }
+}
+
+//  ____                          _ 
+// |  _ \ __ _ _   _ ___  ___  __| |
+// | |_) / _` | | | / __|/ _ \/ _` |
+// |  __/ (_| | |_| \__ \  __/ (_| |
+// |_|   \__,_|\__,_|___/\___|\__,_|
+//  
+
+pub struct Paused<P> {
+    process : P
+}
+
+impl<P> Process for Paused<P>
+where P: Process
+{
+    type Value = P::Value;
+
+    fn call<C> (self, runtime: &mut Runtime, next: C)
+    where C: Continuation<Self::Value> {
+        self.process.call (runtime, next.pause ())
+    }
+}
+
+
+//  __  __             
+// |  \/  | __ _ _ __  
+// | |\/| |/ _` | '_ \ 
+// | |  | | (_| | |_) |
+// |_|  |_|\__,_| .__/ 
+//              |_|    
+
+pub struct Map<P,F> {
+    process : P,
+    map : F
+}
+
+impl<P,F,V> Process for Map<P,F>
+where P: Process, F: FnOnce(P::Value) -> V + 'static
+{
+    type Value = V;
+
+    fn call<C> (self, runtime: &mut Runtime, next: C)
+    where C: Continuation<V> {
+        self.process.call (runtime, next.map (self.map))
     }
 }
 
