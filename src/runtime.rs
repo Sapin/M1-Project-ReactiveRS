@@ -24,6 +24,13 @@ pub trait Continuation<V>: 'static {
 	where Self: Sized, F: FnOnce(V2) -> V + 'static {
 		Map { continuation: self, map }
 	}
+
+	/// Creates a new continuation that waits for the next instant to run the
+	/// continuation.
+	fn pause (self) -> Paused<Self>
+	where Self: Sized {
+		Paused { continuation: self }
+	}
 }
 
 impl<V, F> Continuation<V> for F where F: FnOnce(&mut Runtime, V) + 'static {
@@ -54,6 +61,28 @@ impl<C, F, V1, V2> Continuation<V1> for Map<C, F>
 	}
 
 	fn call_box (self : Box<Self>, runtime: &mut Runtime, value: V1) {
+		(*self).call (runtime, value)
+	}
+}
+
+	////////////
+	// PAUSED //
+	////////////
+
+pub struct Paused<C> {
+	continuation: C
+}
+
+impl<C, V> Continuation<V> for Paused<C>
+	where C: Continuation<V>, V: 'static
+{
+	fn call (self, runtime: &mut Runtime, value:V) {
+		runtime.on_next_instant (Box::new (move |rt : &mut Runtime,()| {
+			self.continuation.call (rt, value)
+		}))
+	}
+
+	fn call_box (self : Box<Self>, runtime: &mut Runtime, value: V) {
 		(*self).call (runtime, value)
 	}
 }
