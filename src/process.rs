@@ -24,9 +24,19 @@ pub trait Process: 'static {
         Paused {process : self}
     }
 
+    fn map<F,V> (self, f: F) -> Map <Self,F>
+    where Self: Sized, F: FnOnce(Self::Value) -> V + 'static {
+        Map {process : self, map : f}
+    }
+
     fn flatten (self) -> Flatten <Self>
-    where Self : Sized {
+    where Self: Sized {
         Flatten {process : self}
+    }
+
+    fn and_then<F,P> (self, f: F) -> Flatten <Map <Self,F>>
+    where Self: Sized, F: FnOnce(Self::Value) -> P + 'static, P: Process {
+        self.map (f).flatten ()
     }
 
 }
