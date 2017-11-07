@@ -5,9 +5,8 @@ pub mod process;
 #[cfg(test)]
 mod tests {
 
-	//use std::boxed::Box;
-	
 	use runtime::{Runtime,Continuation};
+    use process::{Process,value};
 
     #[test]
     fn it_works () {
@@ -35,6 +34,15 @@ mod tests {
         while rt.instant () {
             println!("instant");
         }
+    }
+
+    #[test]
+    fn it_works_with_processes () {
+        value (())
+            .pause ()
+            .pause ()
+            .map (|()| { println!("42"); })
+        .execute ();
     }
 
 }

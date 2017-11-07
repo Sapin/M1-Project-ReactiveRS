@@ -1,4 +1,11 @@
 
+use std::sync::Arc ;
+use std::cell::RefCell ;
+use std::option::Option ;
+use std::mem::swap ;
+
+use runtime::{Runtime,Continuation} ;
+
 //  ____                              
 // |  _ \ _ __ ___   ___ ___  ___ ___ 
 // | |_) | '__/ _ \ / __/ _ \/ __/ __|
@@ -6,17 +13,30 @@
 // |_|   |_|  \___/ \___\___||___/___/
 //  
 
-use runtime::{Runtime,Continuation} ;
-
 pub trait Process: 'static {
     type Value;
     
     fn call<C> (self, runtime: &mut Runtime, next: C)
     where C: Continuation<Self::Value>;
 
-    fn value<V> (v : V) -> Constant<V>
-    where V: 'static {
-        Constant {value : v}
+    fn execute (self) -> Self::Value
+    where Self: Sized {
+        let mut rt = Runtime::new ();
+        let val = Arc::new (RefCell::new (Option::None));
+        let back = val.clone ();
+        rt.on_current_instant (Box::new (move |rt: &mut Runtime, ()| {
+            self.call (rt,move |_:&mut Runtime, v : Self::Value| {
+                let mut val = (*back).borrow_mut ();
+                *val = Option::Some (v)
+            })
+        }));
+        rt.execute ();
+        let mut default = Option::None;
+        swap (&mut *(*val).borrow_mut (), &mut default);
+        match default {
+            Option::None => panic! (),
+            Option::Some (v) => v
+        }
     }
 
     fn pause (self) -> Paused <Self>
@@ -39,6 +59,11 @@ pub trait Process: 'static {
         self.map (f).flatten ()
     }
 
+}
+
+pub fn value <V> (v : V) -> Constant<V>
+where V: Sized {
+    Constant {value : v}
 }
 
 //   ____                _              _   
