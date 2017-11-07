@@ -24,6 +24,11 @@ pub trait Process: 'static {
         Paused {process : self}
     }
 
+    fn flatten (self) -> Flatten <Self>
+    where Self : Sized {
+        Flatten {process : self}
+    }
+
 }
 
 //   ____                _              _   
@@ -91,6 +96,31 @@ where P: Process, F: FnOnce(P::Value) -> V + 'static
     fn call<C> (self, runtime: &mut Runtime, next: C)
     where C: Continuation<V> {
         self.process.call (runtime, next.map (self.map))
+    }
+}
+
+//  _____ _       _   _             
+// |  ___| | __ _| |_| |_ ___ _ __  
+// | |_  | |/ _` | __| __/ _ \ '_ \ 
+// |  _| | | (_| | |_| ||  __/ | | |
+// |_|   |_|\__,_|\__|\__\___|_| |_|
+//    
+
+pub struct Flatten<P> {
+    process : P
+}
+
+impl<P> Process for Flatten<P>
+where P: Process, P::Value: Process
+{
+    type Value = <P::Value as Process>::Value;
+
+    fn call<C> (self, runtime: &mut Runtime, next: C)
+    where C: Continuation<Self::Value> {
+        self.process.call (runtime,
+        |rt: &mut Runtime, process: P::Value| {
+            process.call (rt, next)
+        })
     }
 }
 
