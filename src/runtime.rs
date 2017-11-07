@@ -1,9 +1,12 @@
 use std::collections::VecDeque;
 use std::mem;
 
-	//////////////////
-	// CONTINUATION //
-	//////////////////
+//   ____            _   _                   _   _             
+//  / ___|___  _ __ | |_(_)_ __  _   _  __ _| |_(_) ___  _ __  
+// | |   / _ \| '_ \| __| | '_ \| | | |/ _` | __| |/ _ \| '_ \ 
+// | |__| (_) | | | | |_| | | | | |_| | (_| | |_| | (_) | | | |
+//  \____\___/|_| |_|\__|_|_| |_|\__,_|\__,_|\__|_|\___/|_| |_|
+//                                      
 
 /// A reactive continuation awaiting a value of type `V`. For the sake of
 /// simplicity, continuation must be valid on the static lifetime.
@@ -43,9 +46,12 @@ impl<V, F> Continuation<V> for F where F: FnOnce(&mut Runtime, V) + 'static {
 	}
 }
 
-	/////////
-	// MAP //
-	/////////
+//  __  __             
+// |  \/  | __ _ _ __  
+// | |\/| |/ _` | '_ \ 
+// | |  | | (_| | |_) |
+// |_|  |_|\__,_| .__/ 
+//              |_| 
 
 /// A continuation that applies a function before calling another continuation.
 pub struct Map<C, F> {
@@ -65,9 +71,12 @@ impl<C, F, V1, V2> Continuation<V1> for Map<C, F>
 	}
 }
 
-	////////////
-	// PAUSED //
-	////////////
+//  ____                          _ 
+// |  _ \ __ _ _   _ ___  ___  __| |
+// | |_) / _` | | | / __|/ _ \/ _` |
+// |  __/ (_| | |_| \__ \  __/ (_| |
+// |_|   \__,_|\__,_|___/\___|\__,_|
+//   
 
 pub struct Paused<C> {
 	continuation: C
@@ -87,9 +96,12 @@ impl<C, V> Continuation<V> for Paused<C>
 	}
 }
 
-	/////////////
-	// RUNTIME //
-	/////////////
+//  ____              _   _                
+// |  _ \ _   _ _ __ | |_(_)_ __ ___   ___ 
+// | |_) | | | | '_ \| __| | '_ ` _ \ / _ \
+// |  _ <| |_| | | | | |_| | | | | | |  __/
+// |_| \_\\__,_|_| |_|\__|_|_| |_| |_|\___|
+//     
 
 /// Runtime for executing reactive continuations.
 pub struct Runtime {
