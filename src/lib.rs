@@ -6,7 +6,7 @@ pub mod process;
 mod tests {
 
 	use runtime::{Runtime,Continuation};
-    use process::{Process,value};
+    use process::{Process,value,join};
 
     #[test]
     fn it_works () {
@@ -42,6 +42,18 @@ mod tests {
             .pause ()
             .pause ()
             .map (|()| { println!("42"); })
+        .execute ();
+    }
+
+    #[test]
+    fn join_works () {
+        let p = value ("foo");
+        let q = value ("bar");
+        join (p,q)
+            .map (|(foo,bar)| {
+                println! ("{}", foo);
+                println! ("{}", bar);
+            })
         .execute ();
     }
 

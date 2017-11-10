@@ -110,7 +110,6 @@ where P: Process
     }
 }
 
-
 //  __  __             
 // |  \/  | __ _ _ __  
 // | |\/| |/ _` | '_ \ 
@@ -156,6 +155,96 @@ where P: Process, P::Value: Process
         |rt: &mut Runtime, process: P::Value| {
             process.call (rt, next)
         })
+    }
+}
+
+//      _       _       
+//     | | ___ (_)_ __  
+//  _  | |/ _ \| | '_ \ 
+// | |_| | (_) | | | | |
+//  \___/ \___/|_|_| |_|
+//  
+
+pub struct JoinPoint<A,B> {
+    a : Option <A>,
+    b : Option <B>
+}
+
+pub struct Join<P,Q> {
+    p : P,
+    q : Q
+}
+
+pub fn join<P,Q> (p: P, q: Q) -> Join<P,Q>
+where P: Process, Q: Process {
+    Join {p: p, q: q}
+}
+
+impl<P,Q> Process for Join<P,Q>
+where P: Process, Q: Process
+{
+    type Value = (P::Value, Q::Value);
+
+    fn call<C> (self, runtime: &mut Runtime, next: C)
+    where C: Continuation<Self::Value> {
+        let next = Arc::new (RefCell::new (Option::Some (next)));
+        let na = next.clone ();
+        let nb = next.clone ();
+        let join_point = Arc::new (RefCell::new (
+            JoinPoint {a: Option::None, b: Option::None}
+        ));
+        let p = self.p;
+        let q = self.q;
+        let ja = join_point.clone ();
+        let jb = join_point.clone ();
+        runtime.on_current_instant (Box::new (move |rt: &mut Runtime, ()| {
+            p.call (rt, move |rt: &mut Runtime, a: P::Value| {
+                let mut j = (*ja).borrow_mut ();
+                let mut vb = Option::None;
+                swap (&mut (*j).b, &mut vb);
+                match vb {
+                    Option::None => {
+                        let mut va = Option::Some (a);
+                        swap (&mut (*j).a, &mut va);
+                    }
+                    Option::Some (b) => {
+                        let mut na = (*na).borrow_mut ();
+                        let mut next = Option::None;
+                        swap (&mut *na, &mut next);
+                        match next {
+                            Option::None => { panic!(); }
+                            Option::Some (next) => {
+                                next.call (rt, (a,b));
+                            }
+                        }
+                    }
+                }
+            });
+        }));
+        runtime.on_current_instant (Box::new (move |rt: &mut Runtime, ()| {
+            q.call (rt, move |rt: &mut Runtime, b: Q::Value| {
+                let mut j = (*jb).borrow_mut ();
+                let mut va = Option::None;
+                swap (&mut (*j).a, &mut va);
+                match va {
+                    Option::None => {
+                        let mut vb = Option::Some (b);
+                        swap (&mut (*j).b, &mut vb);
+                    }
+                    Option::Some (a) => {
+                        let mut nb = (*nb).borrow_mut ();
+                        let mut next = Option::None;
+                        swap (&mut *nb, &mut next);
+                        match next {
+                            Option::None => { panic!(); }
+                            Option::Some (next) => {
+                                next.call (rt, (a,b));
+                            }
+                        }
+                    }
+                }
+            });
+        }));
     }
 }
 
