@@ -61,6 +61,14 @@ pub trait Process: 'static {
 
 }
 
+/// A process that can be executed multiple times, modifying its environment each time
+pub trait ProcessMut: Process {
+    /// Executes the mutable process in the runtime, then calls `next` with the process and the
+    /// process's return value.
+    fn call_mut<C>(self, runtime: &mut Runtime, next: C) where
+        Self: Sized, C: Continuation<(Self, Self::Value)>;
+}
+
 pub fn value <V> (v : V) -> Constant<V>
 where V: Sized {
     Constant {value : v}
@@ -88,6 +96,15 @@ where V: 'static
     }
 }
 
+impl<V> ProcessMut for Constant<V>
+where V: 'static + Clone
+{
+    fn call_mut<C> (self, runtime: &mut Runtime, next: C)
+    where C: Continuation<(Self, Self::Value)> {
+        next.call (runtime, (Constant {value: self.value.clone()}, self.value))
+    }
+}
+
 //  ____                          _ 
 // |  _ \ __ _ _   _ ___  ___  __| |
 // | |_) / _` | | | / __|/ _ \/ _` |
@@ -107,6 +124,15 @@ where P: Process
     fn call<C> (self, runtime: &mut Runtime, next: C)
     where C: Continuation<Self::Value> {
         self.process.call (runtime, next.pause ())
+    }
+}
+
+impl<P> ProcessMut for Paused<P>
+where P: ProcessMut
+{
+    fn call_mut<C> (self, runtime: &mut Runtime, next: C)
+    where C: Continuation<(Self, Self::Value)> {
+        self.process.call_mut (runtime, next.map(|(psd,v) : (P,Self::Value)| (psd.pause(),v)).pause())
     }
 }
 
@@ -133,6 +159,19 @@ where P: Process, F: FnOnce(P::Value) -> V + 'static
     }
 }
 
+impl<P,F,V> ProcessMut for Map<P,F>
+where P: ProcessMut, F: FnMut(P::Value) -> V + 'static
+{
+    fn call_mut<C> (self, runtime: &mut Runtime, next: C)
+    where C: Continuation<(Self, Self::Value)> {
+        let mut f = self.map;
+        self.process.call_mut (runtime, next.map(move |(p,v) : (P,P::Value)| {
+            let r = f(v);
+            (p.map(f), r)
+        }))
+    }
+}
+
 //  _____ _       _   _             
 // |  ___| | __ _| |_| |_ ___ _ __  
 // | |_  | |/ _` | __| __/ _ \ '_ \ 
@@ -155,6 +194,20 @@ where P: Process, P::Value: Process
         |rt: &mut Runtime, process: P::Value| {
             process.call (rt, next)
         })
+    }
+}
+
+impl<P> ProcessMut for Flatten<P>
+where P: ProcessMut, P::Value: Process
+{
+    fn call_mut<C> (self, runtime: &mut Runtime, next: C)
+    where C: Continuation<(Self, Self::Value)> {
+        self.process.call_mut (runtime,
+            |rt: &mut Runtime, (parent, process): (P, P::Value)| {
+                process.call (rt, next.map(|v : <P::Value as Process>::Value| {
+                    (parent.flatten(), v)
+                }))
+            })
     }
 }
 
