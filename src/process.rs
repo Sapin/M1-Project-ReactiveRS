@@ -310,3 +310,36 @@ where P: Process, Q: Process
     }
 }
 
+impl<P,Q> ProcessMut for Join<P,Q>
+where P: ProcessMut, Q: ProcessMut
+{
+    fn call_mut<C> (self, runtime: &mut Runtime, next: C)
+    where C: Continuation<(Self, Self::Value)> {
+        let join_point = Arc::new (RefCell::new (
+            JoinPoint {a: Option::None, b: Option::None,
+                cont: Option::Some(next.map (|((p,pv),(q,qv)) : ((P,P::Value),(Q,Q::Value))| {
+                    (join(p,q), (pv, qv))
+                }))
+            }
+        ));
+
+        let ja = join_point.clone ();
+        let p = self.p;
+        runtime.on_current_instant (Box::new (move |rt: &mut Runtime, ()| {
+            p.call_mut (rt, move |rt: &mut Runtime, a: (P, P::Value)| {
+                let mut j = (*ja).borrow_mut ();
+                (*j).seta(rt, a)
+            });
+        }));
+
+        let jb = join_point.clone ();
+        let q = self.q;
+        runtime.on_current_instant (Box::new (move |rt: &mut Runtime, ()| {
+            q.call_mut (rt, move |rt: &mut Runtime, b: (Q, Q::Value)| {
+                let mut j = (*jb).borrow_mut ();
+                (*j).setb(rt, b)
+            });
+        }));
+    }
+}
+
