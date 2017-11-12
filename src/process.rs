@@ -61,12 +61,20 @@ pub trait Process: 'static {
 
 }
 
+pub enum LoopStatus<V> { Continue, Exit(V) }
+
 /// A process that can be executed multiple times, modifying its environment each time
 pub trait ProcessMut: Process {
     /// Executes the mutable process in the runtime, then calls `next` with the process and the
     /// process's return value.
     fn call_mut<C>(self, runtime: &mut Runtime, next: C) where
         Self: Sized, C: Continuation<(Self, Self::Value)>;
+
+    /// Executes the process while it returns Continue, call the continuation with v on Exit(v)
+    fn loop_while<V>(self) -> While <Self>
+    where Self: Sized {
+        While {process: self}
+    }
 }
 
 pub fn value <V> (v : V) -> Constant<V>
@@ -340,6 +348,47 @@ where P: ProcessMut, Q: ProcessMut
                 (*j).setb(rt, b)
             });
         }));
+    }
+}
+
+// __        ___     _ _
+// \ \      / / |__ (_) | ___
+//  \ \ /\ / /| '_ \| | |/ _ \
+//   \ V  V / | | | | | |  __/
+//    \_/\_/  |_| |_|_|_|\___|
+// 
+
+pub struct While<P> {
+    process: P
+}
+
+impl<P,V> Process for While<P>
+where P: ProcessMut<Value = LoopStatus<V>> {
+    type Value = V;
+
+    fn call<C> (self, runtime: &mut Runtime, next: C)
+    where C: Continuation<Self::Value> {
+        let process = self.process;
+        process.call_mut(runtime, |rt: &mut Runtime, (p,v) : (P,LoopStatus<V>)| {
+            match v {
+                LoopStatus::Continue => p.loop_while::<V>().call(rt, next),
+                LoopStatus::Exit(v)  => next.call(rt, v)
+            }
+        })
+    }
+}
+
+impl<P,V> ProcessMut for While<P>
+where P: ProcessMut<Value = LoopStatus<V>> {
+    fn call_mut<C>(self, runtime: &mut Runtime, next: C)
+    where Self: Sized, C: Continuation<(Self, Self::Value)> {
+        let process = self.process;
+        process.call_mut(runtime, |rt: &mut Runtime, (p,v) : (P,LoopStatus<V>)| {
+            match v {
+                LoopStatus::Continue => p.loop_while::<V>().call_mut(rt, next),
+                LoopStatus::Exit(v)  => next.call(rt, (p.loop_while::<V>(), v))
+            }
+        })
     }
 }
 
