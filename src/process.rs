@@ -218,9 +218,55 @@ where P: ProcessMut, P::Value: Process
 //  \___/ \___/|_|_| |_|
 //  
 
-pub struct JoinPoint<A,B> {
-    a : Option <A>,
-    b : Option <B>
+pub struct JoinPoint<A,B,C> {
+    a    : Option <A>,
+    b    : Option <B>,
+    cont : Option <C>
+}
+
+impl<A,B,C> JoinPoint<A,B,C> 
+where C: Continuation<(A,B)> {
+    fn seta(self: &mut Self, rt: &mut Runtime, a : A) {
+        let mut vb = Option::None;
+        swap (&mut (*self).b, &mut vb);
+        match vb {
+            Option::None => {
+                let mut va = Option::Some (a);
+                swap (&mut (*self).a, &mut va);
+            }
+            Option::Some (b) => {
+                let mut next = Option::None;
+                swap (&mut (*self).cont, &mut next);
+                match next {
+                    Option::None => { panic!(); }
+                    Option::Some (next) => {
+                        next.call (rt, (a,b));
+                    }
+                }
+            }
+        }
+    }
+
+    fn setb(self: &mut Self, rt: &mut Runtime, b : B) {
+        let mut va = Option::None;
+        swap (&mut (*self).a, &mut va);
+        match va {
+            Option::None => {
+                let mut vb = Option::Some (b);
+                swap (&mut (*self).b, &mut vb);
+            }
+            Option::Some (a) => {
+                let mut next = Option::None;
+                swap (&mut (*self).cont, &mut next);
+                match next {
+                    Option::None => { panic!(); }
+                    Option::Some (next) => {
+                        next.call (rt, (a,b));
+                    }
+                }
+            }
+        }
+    }
 }
 
 pub struct Join<P,Q> {
@@ -240,62 +286,25 @@ where P: Process, Q: Process
 
     fn call<C> (self, runtime: &mut Runtime, next: C)
     where C: Continuation<Self::Value> {
-        let next = Arc::new (RefCell::new (Option::Some (next)));
-        let na = next.clone ();
-        let nb = next.clone ();
         let join_point = Arc::new (RefCell::new (
-            JoinPoint {a: Option::None, b: Option::None}
+            JoinPoint {a: Option::None, b: Option::None, cont: Option::Some(next)}
         ));
-        let p = self.p;
-        let q = self.q;
+
         let ja = join_point.clone ();
-        let jb = join_point.clone ();
+        let p = self.p;
         runtime.on_current_instant (Box::new (move |rt: &mut Runtime, ()| {
             p.call (rt, move |rt: &mut Runtime, a: P::Value| {
                 let mut j = (*ja).borrow_mut ();
-                let mut vb = Option::None;
-                swap (&mut (*j).b, &mut vb);
-                match vb {
-                    Option::None => {
-                        let mut va = Option::Some (a);
-                        swap (&mut (*j).a, &mut va);
-                    }
-                    Option::Some (b) => {
-                        let mut na = (*na).borrow_mut ();
-                        let mut next = Option::None;
-                        swap (&mut *na, &mut next);
-                        match next {
-                            Option::None => { panic!(); }
-                            Option::Some (next) => {
-                                next.call (rt, (a,b));
-                            }
-                        }
-                    }
-                }
+                (*j).seta(rt, a)
             });
         }));
+
+        let jb = join_point.clone ();
+        let q = self.q;
         runtime.on_current_instant (Box::new (move |rt: &mut Runtime, ()| {
             q.call (rt, move |rt: &mut Runtime, b: Q::Value| {
                 let mut j = (*jb).borrow_mut ();
-                let mut va = Option::None;
-                swap (&mut (*j).a, &mut va);
-                match va {
-                    Option::None => {
-                        let mut vb = Option::Some (b);
-                        swap (&mut (*j).b, &mut vb);
-                    }
-                    Option::Some (a) => {
-                        let mut nb = (*nb).borrow_mut ();
-                        let mut next = Option::None;
-                        swap (&mut *nb, &mut next);
-                        match next {
-                            Option::None => { panic!(); }
-                            Option::Some (next) => {
-                                next.call (rt, (a,b));
-                            }
-                        }
-                    }
-                }
+                (*j).setb(rt, b)
             });
         }));
     }
