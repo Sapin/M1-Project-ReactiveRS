@@ -71,10 +71,32 @@ pub trait ProcessMut: Process {
         Self: Sized, C: Continuation<(Self, Self::Value)>;
 
     /// Executes the process while it returns Continue, call the continuation with v on Exit(v)
-    fn loop_while<V>(self) -> While <Self>
+    fn loop_while(self) -> While <Self>
     where Self: Sized {
         While {process: self}
     }
+
+    /// Execute the process as a mutable process
+    fn execute_mut (self) -> Self::Value
+    where Self: Sized {
+        let mut rt = Runtime::new ();
+        let val = Arc::new (RefCell::new (Option::None));
+        let back = val.clone ();
+        rt.on_current_instant (Box::new (move |rt: &mut Runtime, ()| {
+            self.call_mut (rt,move |_:&mut Runtime, (_,v) : (Self,Self::Value)| {
+                let mut val = (*back).borrow_mut ();
+                *val = Option::Some (v)
+            })
+        }));
+        rt.execute ();
+        let mut default = Option::None;
+        swap (&mut *(*val).borrow_mut (), &mut default);
+        match default {
+            Option::None => panic! (),
+            Option::Some (v) => v
+        }
+    }
+
 }
 
 pub fn value <V> (v : V) -> Constant<V>
@@ -371,7 +393,7 @@ where P: ProcessMut<Value = LoopStatus<V>> {
         let process = self.process;
         process.call_mut(runtime, |rt: &mut Runtime, (p,v) : (P,LoopStatus<V>)| {
             match v {
-                LoopStatus::Continue => p.loop_while::<V>().call(rt, next),
+                LoopStatus::Continue => p.loop_while().call(rt, next),
                 LoopStatus::Exit(v)  => next.call(rt, v)
             }
         })
@@ -385,8 +407,8 @@ where P: ProcessMut<Value = LoopStatus<V>> {
         let process = self.process;
         process.call_mut(runtime, |rt: &mut Runtime, (p,v) : (P,LoopStatus<V>)| {
             match v {
-                LoopStatus::Continue => p.loop_while::<V>().call_mut(rt, next),
-                LoopStatus::Exit(v)  => next.call(rt, (p.loop_while::<V>(), v))
+                LoopStatus::Continue => p.loop_while().call_mut(rt, next),
+                LoopStatus::Exit(v)  => next.call(rt, (p.loop_while(), v))
             }
         })
     }
