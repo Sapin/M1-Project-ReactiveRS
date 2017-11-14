@@ -5,8 +5,10 @@ pub mod process;
 #[cfg(test)]
 mod tests {
 
+    use std::sync::Arc ;
+    use std::cell::RefCell ;
 	use runtime::{Runtime,Continuation};
-    use process::{Process,value,join};
+    use process::{Process,ProcessMut,value,join,LoopStatus};
 
     #[test]
     fn it_works () {
@@ -55,6 +57,26 @@ mod tests {
                 println! ("{}", bar);
             })
         .execute ();
+    }
+
+    #[test]
+    fn while_works() {
+        let val = Arc::new (RefCell::new (0));
+        let back = val.clone ();
+        let f = move |()| {
+            let mut val = (*back).borrow_mut();
+            println!("WHILE test : {}", val);
+            *val += 1;
+            if *val > 5 {
+                LoopStatus::Exit(())
+            } else {
+                LoopStatus::Continue
+            }
+        };
+        value (())
+            .map (f)
+            .loop_while ()
+            .execute_mut ();
     }
 
 }
