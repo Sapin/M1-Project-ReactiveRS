@@ -26,13 +26,16 @@ pub trait Process: 'static {
         let back = val.clone ();
         rt.on_current_instant (Box::new (move |rt: &mut Runtime, ()| {
             self.call (rt,move |_:&mut Runtime, v : Self::Value| {
-                let mut val = (*back).borrow_mut ();
-                *val = Option::Some (v)
+                let mut rval = (*back).try_borrow_mut ();
+                while rval.is_err () { rval = (*back).try_borrow_mut (); };
+                *rval.unwrap () = Option::Some (v);
             })
         }));
         rt.execute ();
         let mut default = Option::None;
-        swap (&mut *(*val).borrow_mut (), &mut default);
+        let mut vref = (*val).try_borrow_mut ();
+        while vref.is_err () { vref = (*val).try_borrow_mut (); };
+        swap (&mut *vref.unwrap (), &mut default);
         match default {
             Option::None => panic! (),
             Option::Some (v) => v
@@ -84,13 +87,16 @@ pub trait ProcessMut: Process {
         let back = val.clone ();
         rt.on_current_instant (Box::new (move |rt: &mut Runtime, ()| {
             self.call_mut (rt,move |_:&mut Runtime, (_,v) : (Self,Self::Value)| {
-                let mut val = (*back).borrow_mut ();
-                *val = Option::Some (v)
+                let mut val = (*back).try_borrow_mut ();
+                while val.is_err () { val = (*back).try_borrow_mut (); };
+                *val.unwrap () = Option::Some (v)
             })
         }));
         rt.execute ();
+        let mut rval = (*val).try_borrow_mut ();
+        while rval.is_err () { rval = (*val).try_borrow_mut (); };
         let mut default = Option::None;
-        swap (&mut *(*val).borrow_mut (), &mut default);
+        swap (&mut *(rval.unwrap ()), &mut default);
         match default {
             Option::None => panic! (),
             Option::Some (v) => v
@@ -324,8 +330,9 @@ where P: Process, Q: Process
         let p = self.p;
         runtime.on_current_instant (Box::new (move |rt: &mut Runtime, ()| {
             p.call (rt, move |rt: &mut Runtime, a: P::Value| {
-                let mut j = (*ja).borrow_mut ();
-                (*j).seta(rt, a)
+                let mut j = (*ja).try_borrow_mut ();
+                while j.is_err () { j = (*ja).try_borrow_mut (); };
+                (*j.unwrap ()).seta (rt, a);
             });
         }));
 
@@ -333,8 +340,9 @@ where P: Process, Q: Process
         let q = self.q;
         runtime.on_current_instant (Box::new (move |rt: &mut Runtime, ()| {
             q.call (rt, move |rt: &mut Runtime, b: Q::Value| {
-                let mut j = (*jb).borrow_mut ();
-                (*j).setb(rt, b)
+                let mut j = (*jb).try_borrow_mut ();
+                while j.is_err () { j = (*jb).try_borrow_mut (); };
+                (*j.unwrap ()).setb (rt, b);
             });
         }));
     }
@@ -357,8 +365,9 @@ where P: ProcessMut, Q: ProcessMut
         let p = self.p;
         runtime.on_current_instant (Box::new (move |rt: &mut Runtime, ()| {
             p.call_mut (rt, move |rt: &mut Runtime, a: (P, P::Value)| {
-                let mut j = (*ja).borrow_mut ();
-                (*j).seta(rt, a)
+                let mut j = (*ja).try_borrow_mut ();
+                while j.is_err () { j = (*ja).try_borrow_mut (); };
+                (*j.unwrap ()).seta (rt, a);
             });
         }));
 
@@ -366,8 +375,9 @@ where P: ProcessMut, Q: ProcessMut
         let q = self.q;
         runtime.on_current_instant (Box::new (move |rt: &mut Runtime, ()| {
             q.call_mut (rt, move |rt: &mut Runtime, b: (Q, Q::Value)| {
-                let mut j = (*jb).borrow_mut ();
-                (*j).setb(rt, b)
+                let mut j = (*jb).try_borrow_mut ();
+                while j.is_err () { j = (*jb).try_borrow_mut (); };
+                (*j.unwrap ()).setb (rt, b);
             });
         }));
     }
