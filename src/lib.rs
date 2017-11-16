@@ -1,6 +1,7 @@
 
 pub mod runtime;
 pub mod process;
+pub mod signal;
 
 #[cfg(test)]
 mod tests {
