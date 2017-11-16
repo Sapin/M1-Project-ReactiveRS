@@ -20,27 +20,27 @@ impl SignalRuntimeRef {
     /// Sets the signal as emitted for the current instant
     fn emits(self, runtime: &mut Runtime) {
         (*self.runtime).emitted = true;
-        while let Some (c) = self.waiters.pop_front() {
-            c.call()
+        while let Some (c) = (*self.runtime).waiters.pop_front() {
+            c.call(runtime, ())
         }
 
         let sr = self.clone();
-        runtime.on_end_of_instant(|_, ()| {
-            sr.emitted = false
-        })
+        runtime.on_end_of_instant(Box::new(|_, ()| {
+            (*sr.runtime).emitted = false
+        }))
     }
 
     /// Calls `c` at the first cycle where the signal is present 
     fn on_signal<C>(self, runtime: &mut Runtime, c: C)
     where C: Continuation<()> {
         let sr = self.clone();
-        runtime.on_end_of_instant(|rt, ()| {
-            if sr.emitted {
-                c.call()
+        runtime.on_end_of_instant(Box::new(|rt, ()| {
+            if (*sr.runtime).emitted {
+                c.call(runtime, ())
             } else {
-                sr.waiters.push_back(Box::new(c))
+                (*sr.runtime).waiters.push_back(Box::new(c))
             }
-        })
+        }))
     }
 }
 
@@ -52,21 +52,29 @@ pub trait Signal {
     /// Returns a process that waits for the next emission of the signal, current instant
     /// included.
     fn await_immediate(self) -> AwaitImmediate where Self: Sized {
-      unimplemented!() // TODO
+        AwaitImmediate {signal: self.runtime()}
     }
 
     // TODO: add other methods if needed.
 }
 
 struct AwaitImmediate {
-    // TODO
+    signal : SignalRuntimeRef,
 }
 
 impl Process for AwaitImmediate {
-    // TODO
+    type Value = ();
+
+    fn call<C> (self, runtime: &mut Runtime, next: C)
+    where C: Continuation<Self::Value> {
+        self.signal.on_signal(runtime, next)
+    }
 }
 
 impl ProcessMut for AwaitImmediate {
-    // TODO
+    fn call_mut<C> (self, runtime: &mut Runtime, next: C)
+    where C: Continuation<(Self, Self::Value)> {
+        self.signal.on_signal(runtime, next.map(|()| (AwaitImmediate {signal: self.signal}, ())))
+    }
 }
 
