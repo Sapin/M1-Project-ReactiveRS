@@ -40,7 +40,7 @@ impl SignalRuntimeRef {
     pub fn on_signal<C>(self, runtime: &mut Runtime, c: C)
     where C: Continuation<()> {
         let sr = self.clone();
-        runtime.on_end_of_instant(Box::new(move |rt : &mut Runtime, ()| {
+        runtime.on_current_instant(Box::new(move |rt : &mut Runtime, ()| {
             let mut srt = (*sr.runtime).try_borrow_mut ();
             while srt.is_err () { srt = (*sr.runtime).try_borrow_mut (); };
             let mut srt = srt.unwrap ();
