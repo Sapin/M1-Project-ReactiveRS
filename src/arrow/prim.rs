@@ -237,3 +237,38 @@ where A: 'static,
 
 }
 
+//  _____          _    
+// |  ___|__  _ __| | __
+// | |_ / _ \| '__| |/ /
+// |  _| (_) | |  |   < 
+// |_|  \___/|_|  |_|\_\
+//                      
+
+pub struct Fork<X> {
+   arr: Arc<X>,
+}
+
+pub fn fork<A,X> (x: X) -> Fork<X>
+where A: 'static,
+      X: Arrow<A,()> + 'static,
+{
+    Fork {arr: Arc::new (x)}
+}
+
+impl<A,X> Arrow<A,A> for Fork<X>
+where A: Clone + 'static,
+      X: Arrow<A,()> + 'static,
+{
+
+    fn call<F> (&self, rt: &mut Runtime, a: A, next: F)
+    where F: Continuation<A> {
+        let arr = self.arr.clone ();
+        let val = a.clone ();
+        rt.on_current_instant (Box::new (move |rt: &mut Runtime, ()| {
+            arr.call (rt, val, |_: &mut Runtime, ()| {});
+        }));
+        next.call (rt, a);
+    }
+
+}
+
