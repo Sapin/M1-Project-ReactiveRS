@@ -53,10 +53,10 @@ impl Runtime {
         while let Some (ct) = self.current_instant.pop_front () {
             Continuation::call_box (ct, self, ());
         };
+        swap (&mut self.current_instant, &mut self.next_instant);
         while let Some (ct) = self.endof_instant.pop_front () {
             Continuation::call_box (ct, self, ());
         };
-        swap (&mut self.current_instant, &mut self.next_instant);
         ! (self.current_instant.is_empty ())
     }
 
