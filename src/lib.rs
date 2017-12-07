@@ -1,65 +1,35 @@
 
-pub mod runtime;
-pub mod arrow;
-//pub mod signal;
+use std::rc::{Rc};
+use std::marker::{PhantomData};
 
-#[cfg(test)]
-mod tests {
+//     _                           
+//    / \   _ __ _ __ _____      __
+//   / _ \ | '__| '__/ _ \ \ /\ / /
+//  / ___ \| |  | | | (_) \ V  V / 
+// /_/   \_\_|  |_|  \___/ \_/\_/  
+//                                 
 
-    use std::result::{Result};
-
-    use arrow::{Arrow};
-    use arrow::prim::{identity};
-    /*
-    use arrow::prim::{identity,map,pause,fixpoint,product,fork};
-
-    use signal::{Signal};
-    use signal::prim::{PureSignal};
-
-    #[test]
-    fn test_pause () {
-        product (
-            map (|()| { println!("foo"); })
-            .bind (pause ())
-            .bind (map (|()| { println!("bar"); }))
-        ,   map (|()| { println!("foo"); })
-            .bind (pause ())
-            .bind (map (|()| { println!("bar"); })) 
-        )
-        .execute (((),()));
+pub trait Arrow<'a,A,B>
+where A : 'a,
+      B : 'a
+{
+    fn bind<C,Y> (self, y: Y) -> Bind<B,Self,Y>
+    where Self: Sized + 'a,
+          Y: Arrow<'a,B,C>
+    {
     }
+}
 
-    #[test]
-    fn test_pure_signal () {
-        let s = PureSignal::new ();
-        let p1 = s.emit ()
-        .bind  ( pause () )
-        .bind  ( s.emit () )
-        .bind  ( pause () )
-        .bind  ( pause () )
-        ;
-        let p2 = {
-            let p = s.present (
-                map (|()| { println! ("present"); } )
-                .bind ( pause () )
-                .bind ( map (|()| { Result::Ok (()) }) )
-            ,   map (|()| { println! ("not present"); Result::Err (()) } )
-            );
-            fixpoint (p)
-        };
-        let p3 = {
-            let p = s.await_immediate ()
-            .bind ( map (|()| { println! ("s received"); Result::Ok (()) }))
-            .bind ( pause () );
-            fixpoint (p)
-        };
-        identity ()
-        .bind (fork (p1))
-        .bind (fork (p2))
-        .bind (fork (p3))
-        .execute (());
-    }
-    */
+//  ____  _           _ 
+// | __ )(_)_ __   __| |
+// |  _ \| | '_ \ / _` |
+// | |_) | | | | | (_| |
+// |____/|_|_| |_|\__,_|
+//                      
 
+pub struct Bind<B,X,Y> {
+    mid : PhantomData<B>,
+    fst : X,
+    snd : Rc<Y>,
 }
 
