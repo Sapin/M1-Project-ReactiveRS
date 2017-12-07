@@ -9,13 +9,13 @@ use std::mem::{swap};
 //  \____\___/|_| |_|\__|_|_| |_|\__,_|\__,_|\__|_|\___/|_| |_|
 //                                                             
 
-pub trait Continuation<V> : 'static {
+pub trait Continuation<V> {
     fn call (self, runtime: &mut Runtime, val: V);
     fn call_box (self: Box<Self>, runtime: &mut Runtime, val: V);
 }
 
 impl<V,F> Continuation<V> for F
-where F: FnOnce(&mut Runtime, V) + 'static {
+where F: FnOnce(&mut Runtime, V) {
     fn call (self, runtime: &mut Runtime, val: V) {
         self (runtime, val);
     }

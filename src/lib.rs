@@ -1,7 +1,7 @@
 
 pub mod runtime;
 pub mod arrow;
-pub mod signal;
+//pub mod signal;
 
 #[cfg(test)]
 mod tests {
@@ -9,6 +9,8 @@ mod tests {
     use std::result::{Result};
 
     use arrow::{Arrow};
+    use arrow::prim::{identity};
+    /*
     use arrow::prim::{identity,map,pause,fixpoint,product,fork};
 
     use signal::{Signal};
@@ -57,6 +59,7 @@ mod tests {
         .bind (fork (p3))
         .execute (());
     }
+    */
 
 }
 

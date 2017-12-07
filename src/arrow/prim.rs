@@ -1,4 +1,5 @@
 
+/*
 use std::option::{Option};
 use std::result::{Result};
 use std::clone::{Clone};
@@ -6,6 +7,7 @@ use std::cell::{RefCell};
 use std::sync::{Arc,Mutex};
 use std::mem::{swap};
 use std::marker::{PhantomData};
+*/
 
 use runtime::{Runtime,Continuation};
 use arrow::{Arrow};
@@ -23,8 +25,8 @@ pub fn identity () -> Identity {
     Identity ()
 }
 
-impl<A> Arrow<A,A> for Identity
-where A: 'static
+impl<'a,A> Arrow<'a,A,A> for Identity
+where A : 'a
 {
 
     fn call<F> (&self, rt: &mut Runtime, a: A, next: F)
@@ -34,6 +36,7 @@ where A: 'static
 
 }
 
+/*
 // __     __    _            
 // \ \   / /_ _| |_   _  ___ 
 //  \ \ / / _` | | | | |/ _ \
@@ -296,3 +299,4 @@ where A: Clone + 'static,
 
 }
 
+*/

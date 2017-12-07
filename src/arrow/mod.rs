@@ -16,15 +16,16 @@ pub mod prim;
 // /_/   \_\_|  |_|  \___/ \_/\_/  
 //                                 
 
-pub trait Arrow<A,B> : 'static {
+pub trait Arrow<'a,A,B> : 'a
+where A : 'a,
+      B : 'a
+{
 
     fn call<C> (&self, rt: &mut Runtime, a: A, next: C)
     where C: Continuation<B>;
 
     fn execute (self, a: A) -> B
-    where Self: Sized,
-          A: 'static,
-          B: 'static
+    where Self: Sized + 'a
     {
         let mut rt = Runtime::new ();
         let val = Arc::new (RefCell::new (Option::None));
@@ -35,6 +36,7 @@ pub trait Arrow<A,B> : 'static {
             })
         }));
         rt.execute ();
+
         let mut tmp = Option::None;
         swap (&mut *val.borrow_mut (), &mut tmp);
         match tmp {
@@ -44,30 +46,25 @@ pub trait Arrow<A,B> : 'static {
     }
 
     fn bind<C,Y> (self, y: Y) -> Bind<B,Self,Y>
-    where Self: Sized,
-          A: 'static,
-          B: 'static,
-          C: 'static,
-          Y: Arrow<B,C> + 'static,
+    where Self: Sized + 'a,
+          Y: Arrow<'a,B,C>
     {
         bind (self, y)
     }
 
     fn flatten<C> (self) -> Flatten<Self,B>
-    where Self: Sized,
-          A: 'static,
-          B: Arrow<(),C> + 'static,
-          C: 'static,
+    where Self: Sized + 'a,
+          B: Arrow<'a,(),C>
     {
         flatten (self)
     }
 
 }
 
-impl<A,B,F> Arrow<A,B> for F
-where A: 'static,
-      B: 'static,
-      F: Fn(A) -> B + 'static,
+impl<'a,A,B,F> Arrow<'a,A,B> for F
+where F: Fn(A) -> B + 'a,
+      A : 'a,
+      B : 'a
 {
     
     fn call<C> (&self, rt: &mut Runtime, a: A, next: C)
@@ -90,12 +87,12 @@ pub struct Bind<B,X,Y> {
     snd : Arc<Y>,
 }
 
-pub fn bind<A,B,C,X,Y> (x: X, y: Y) -> Bind<B,X,Y>
-where A: 'static,
-      B: 'static,
-      C: 'static,
-      X: Arrow<A,B> + 'static,
-      Y: Arrow<B,C> + 'static,
+pub fn bind<'a,A,B,C,X,Y> (x: X, y: Y) -> Bind<B,X,Y>
+where A : 'a,
+      B : 'a,
+      C : 'a,
+      X: Arrow<'a,A,B>,
+      Y: Arrow<'a,B,C>
 {
     Bind {
         mid: PhantomData,
@@ -105,12 +102,12 @@ where A: 'static,
 }
 
 
-impl<A,B,C,X,Y> Arrow<A,C> for Bind<B,X,Y>
-where A: 'static,
-      B: 'static,
-      C: 'static,
-      X: Arrow<A,B> + 'static,
-      Y: Arrow<B,C> + 'static,
+impl<'a,A,B,C,X,Y> Arrow<'a,A,C> for Bind<B,X,Y>
+where A : 'a,
+      B : 'a,
+      C : 'a,
+      X: Arrow<'a,A,B>,
+      Y: Arrow<'a,B,C>
 {
     
     fn call<F> (&self, rt: &mut Runtime, a:A, next:F)
@@ -135,11 +132,11 @@ pub struct Flatten<X,Y> {
     snd: PhantomData<Y>,
 }
 
-pub fn flatten<A,B,X,Y> (arr: X) -> Flatten<X,Y>
-where A: 'static,
-      B: 'static,
-      X: Arrow< A,Y> + 'static,
-      Y: Arrow<(),B> + 'static,
+pub fn flatten<'a,A,B,X,Y> (arr: X) -> Flatten<X,Y>
+where A : 'a,
+      B : 'a,
+      X: Arrow<'a, A,Y>,
+      Y: Arrow<'a,(),B>
 {
     Flatten {
         fst: arr,
@@ -148,11 +145,11 @@ where A: 'static,
 }
 
 
-impl<A,B,X,Y> Arrow<A,B> for Flatten<X,Y>
-where A: 'static,
-      B: 'static,
-      X: Arrow< A,Y> + 'static,
-      Y: Arrow<(),B> + 'static,
+impl<'a,A,B,X,Y> Arrow<'a,A,B> for Flatten<X,Y>
+where A : 'a,
+      B : 'a,
+      X: Arrow<'a, A,Y>,
+      Y: Arrow<'a,(),B>
 {
     
     fn call<F> (&self, rt: &mut Runtime, a: A, next: F)
