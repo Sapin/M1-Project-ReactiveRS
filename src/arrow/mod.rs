@@ -16,7 +16,10 @@ pub mod prim;
 // /_/   \_\_|  |_|  \___/ \_/\_/  
 //                                 
 
-pub trait Arrow<A,B> : 'static {
+pub trait Arrow<A,B> : Sized + 'static
+where A: 'static,
+      B: 'static,
+{
 
     fn call<C> (&self, rt: &mut Runtime, a: A, next: C)
     where C: Continuation<B>;
@@ -64,18 +67,18 @@ pub trait Arrow<A,B> : 'static {
 
 }
 
-impl<A,B,F> Arrow<A,B> for F
-where A: 'static,
-      B: 'static,
-      F: Fn(A) -> B + 'static,
-{
-    
-    fn call<C> (&self, rt: &mut Runtime, a: A, next: C)
-    where C: Continuation<B> {
-        next.call (rt, self (a))
-    }
-
-}
+// impl<A,B,F> Arrow<A,B> for F
+// where A: 'static,
+//       B: 'static,
+//       F: Fn(A) -> B + 'static,
+// {
+//     
+//     fn call<C> (&self, rt: &mut Runtime, a: A, next: C)
+//     where C: Continuation<B> {
+//         next.call (rt, self (a))
+//     }
+// 
+// }
 
 //  ____  _           _ 
 // | __ )(_)_ __   __| |

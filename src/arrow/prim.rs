@@ -41,17 +41,21 @@ where A: 'static
 //    \_/ \__,_|_|\__,_|\___|
 //                           
 
-pub struct Value<B> {
+pub struct Value<A,B> {
+    phantom: PhantomData<A>,
     val: B,
 }
 
-pub fn value<B> (val: B) -> Value<B>
+pub fn value<A,B> (val: B) -> Value<A,B>
 where B: Clone + 'static
 {
-    Value {val: val}
+    Value {
+        phantom: PhantomData,
+        val: val,
+    }
 }
 
-impl<A,B> Arrow<A,B> for Value<B>
+impl<A,B> Arrow<A,B> for Value<A,B>
 where A: 'static,
       B: Clone + 'static
 {
@@ -136,7 +140,9 @@ pub struct Fixpoint<X> {
 }
 
 pub fn fixpoint<A,B,X> (x: X) -> Fixpoint<X>
-where X: Arrow<A,Result<A,B>> {
+where A: 'static,
+      B: 'static,
+      X: Arrow<A,Result<A,B>> {
     Fixpoint {arr: Arc::new(x)}
 }
 

@@ -30,7 +30,9 @@ pub trait Signal : Sized + Clone + 'static {
     }
 
     fn present<A,B,X,Y> (&self, ifp: X, ifn: Y) -> Present<Self,X,Y>
-    where X: Arrow<A,B>,
+    where A: 'static,
+          B: 'static,
+          X: Arrow<A,B>,
           Y: Arrow<A,B>,
     {
         Present {
