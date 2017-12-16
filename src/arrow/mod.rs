@@ -1,11 +1,11 @@
 
-use std::sync::{Arc};
+use std::sync::{Arc,Mutex};
 use std::cell::{RefCell};
 use std::option::{Option};
 use std::mem::{swap};
 use std::marker::{PhantomData};
 
-use runtime::{Runtime,Continuation};
+use runtime::{Runtime,SeqRuntime,Continuation};
 
 pub mod prim;
 
@@ -16,29 +16,27 @@ pub mod prim;
 // /_/   \_\_|  |_|  \___/ \_/\_/  
 //                                 
 
-pub trait Arrow<A,B> : Sized + 'static
-where A: 'static,
-      B: 'static,
+pub trait Arrow<A,B> : Sized + Send + 'static
+where A: Send + 'static,
+      B: Send + 'static,
 {
 
     fn call<C> (&self, rt: &mut Runtime, a: A, next: C)
-    where C: Continuation<B>;
+    where C: Continuation<B> + Send;
 
-    fn execute (self, a: A) -> B
-    where Self: Sized,
-          A: 'static,
-          B: 'static
-    {
-        let mut rt = Runtime::new ();
-        let val = Arc::new (RefCell::new (Option::None));
+    fn execute (self, a: A) -> B {
+        let mut rt = SeqRuntime::new ();
+        let val = Arc::new (Mutex::new (RefCell::new (Option::None)));
         let back = val.clone ();
         rt.on_current_instant (Box::new (move |rt: &mut Runtime, ()| {
             self.call (rt, a, move |_:&mut Runtime, b: B| {
-                *(*back).borrow_mut () = Option::Some (b);
+                let back = back.lock ().unwrap ();
+                *(back.borrow_mut ()) = Option::Some (b);
             })
         }));
         rt.execute ();
         let mut tmp = Option::None;
+        let val = val.lock ().unwrap ();
         swap (&mut *val.borrow_mut (), &mut tmp);
         match tmp {
             Option::None => panic! (),
@@ -47,10 +45,7 @@ where A: 'static,
     }
 
     fn bind<C,Y> (self, y: Y) -> Bind<B,Self,Y>
-    where Self: Sized,
-          A: 'static,
-          B: 'static,
-          C: 'static,
+    where C: Send + 'static,
           Y: Arrow<B,C> + 'static,
     {
         bind (self, y)
@@ -58,9 +53,8 @@ where A: 'static,
 
     fn flatten<C> (self) -> Flatten<Self,B>
     where Self: Sized,
-          A: 'static,
-          B: Arrow<(),C> + 'static,
-          C: 'static,
+          B: Arrow<(),C>,
+          C: Send + 'static,
     {
         flatten (self)
     }
@@ -94,11 +88,11 @@ pub struct Bind<B,X,Y> {
 }
 
 pub fn bind<A,B,C,X,Y> (x: X, y: Y) -> Bind<B,X,Y>
-where A: 'static,
-      B: 'static,
-      C: 'static,
-      X: Arrow<A,B> + 'static,
-      Y: Arrow<B,C> + 'static,
+where A: Send + 'static,
+      B: Send + 'static,
+      C: Send + 'static,
+      X: Arrow<A,B> + Send + 'static,
+      Y: Arrow<B,C> + Send + 'static,
 {
     Bind {
         mid: PhantomData,
@@ -109,15 +103,15 @@ where A: 'static,
 
 
 impl<A,B,C,X,Y> Arrow<A,C> for Bind<B,X,Y>
-where A: 'static,
-      B: 'static,
-      C: 'static,
-      X: Arrow<A,B> + 'static,
-      Y: Arrow<B,C> + 'static,
+where A: Send + 'static,
+      B: Send + 'static,
+      C: Send + 'static,
+      X: Arrow<A,B> + Send + 'static,
+      Y: Arrow<B,C> + Send + Sync + 'static,
 {
     
     fn call<F> (&self, rt: &mut Runtime, a:A, next:F)
-    where F: Continuation<C> {
+    where F: Continuation<C> + Send {
         let snd = self.snd.clone ();
         self.fst.call (rt, a, move |rt: &mut Runtime, b: B| {
             (*snd).call (rt, b, next);
@@ -139,10 +133,10 @@ pub struct Flatten<X,Y> {
 }
 
 pub fn flatten<A,B,X,Y> (arr: X) -> Flatten<X,Y>
-where A: 'static,
-      B: 'static,
-      X: Arrow< A,Y> + 'static,
-      Y: Arrow<(),B> + 'static,
+where A: Send + 'static,
+      B: Send + 'static,
+      X: Arrow< A,Y> + Send + 'static,
+      Y: Arrow<(),B> + Send + 'static,
 {
     Flatten {
         fst: arr,
@@ -152,14 +146,14 @@ where A: 'static,
 
 
 impl<A,B,X,Y> Arrow<A,B> for Flatten<X,Y>
-where A: 'static,
-      B: 'static,
-      X: Arrow< A,Y> + 'static,
-      Y: Arrow<(),B> + 'static,
+where A: Send + 'static,
+      B: Send + 'static,
+      X: Arrow< A,Y> + Send + 'static,
+      Y: Arrow<(),B> + Send + 'static,
 {
     
     fn call<F> (&self, rt: &mut Runtime, a: A, next: F)
-    where F: Continuation<B> {
+    where F: Continuation<B> + Send {
         self.fst.call (rt, a, move |rt: &mut Runtime, snd:Y| {
             snd.call (rt, (), next);
         });

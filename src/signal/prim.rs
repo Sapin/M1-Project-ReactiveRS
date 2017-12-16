@@ -18,8 +18,8 @@ use signal::{Signal};
 
 struct PureSignalRuntime {
     emitted : bool,
-    waiters : VecDeque<Box<Continuation<()>>>,
-    present : VecDeque<(Box<Continuation<()>>,Box<Continuation<()>>)>,
+    waiters : VecDeque<Box<Continuation<()> + Send>>,
+    present : VecDeque<(Box<Continuation<()> + Send>,Box<Continuation<()> + Send>)>,
     awaken  : bool,
 }
 
@@ -68,7 +68,7 @@ impl PureSignal {
 impl Signal for PureSignal {
 
     fn call_await_immediate (&self, rt: &mut Runtime,
-                             next: Box<Continuation<()>>)
+                             next: Box<Continuation<()> + Send>)
     {
         let data = self.rt.lock ().unwrap ();
         let mut data = data.borrow_mut ();
@@ -80,8 +80,8 @@ impl Signal for PureSignal {
     }
 
     fn call_present (&self, rt: &mut Runtime,
-                     ifp: Box<Continuation<()>>,
-                     ifn: Box<Continuation<()>>)
+                     ifp: Box<Continuation<()> + Send>,
+                     ifn: Box<Continuation<()> + Send>)
     {
         let data = self.rt.lock ().unwrap ();
         let mut data = data.borrow_mut ();
@@ -98,7 +98,7 @@ impl Signal for PureSignal {
 impl Arrow<(),()> for EmitPureSignal {
 
     fn call<F> (&self, rt: &mut Runtime, (): (), next: F)
-    where F: Continuation<()> {
+    where F: Continuation<()> + Send {
         let &EmitPureSignal(ref signal) = self;
         let data = signal.rt.lock ().unwrap ();
         let mut data = data.borrow_mut ();
@@ -126,8 +126,8 @@ impl Arrow<(),()> for EmitPureSignal {
 
 struct ValueSignalRuntime<A> {
     current : Option <A>,
-    combine : Box<Fn(A,A) -> A>,
-    waiters : VecDeque<Box<Continuation<A>>>,
+    combine : Box<Fn(A,A) -> A + Send>,
+    waiters : VecDeque<Box<Continuation<A> + Send>>,
     awaken  : bool,
 }
 
@@ -145,10 +145,10 @@ pub struct AwaitValueSignal<A> (ValueSignal<A>);
 
 impl<A> ValueSignal<A>
 where Self: Clone + 'static,
-      A: Clone + 'static,
+      A: Clone + Send + 'static,
 {
 
-    pub fn new (combine: Box<Fn(A,A) -> A>) -> ValueSignal<A>
+    pub fn new (combine: Box<Fn(A,A) -> A + Send>) -> ValueSignal<A>
     where A: 'static,
     {
         ValueSignal {
@@ -200,18 +200,18 @@ where Self: Clone + 'static,
 }
 
 impl<A> Signal for ValueSignal<A> 
-where A: Clone + 'static,
+where A: Clone + Send + 'static,
 {
 
     fn call_await_immediate (&self, rt: &mut Runtime,
-                             next: Box<Continuation<()>>)
+                             next: Box<Continuation<()> + Send>)
     {
         self.base.call_await_immediate (rt, next);
     }
 
     fn call_present (&self, rt: &mut Runtime,
-                     ifp: Box<Continuation<()>>,
-                     ifn: Box<Continuation<()>>)
+                     ifp: Box<Continuation<()> + Send>,
+                     ifn: Box<Continuation<()> + Send>)
     {
         self.base.call_present (rt, ifp, ifn);
     }
@@ -219,12 +219,12 @@ where A: Clone + 'static,
 }
 
 impl<A> Arrow<A,()> for EmitValueSignal<A>
-where Self: Clone + 'static,
-      A: Clone + 'static,
+where Self: Clone + Send + 'static,
+      A: Clone + Send + 'static,
 {
 
     fn call<F> (&self, rt: &mut Runtime, a: A, next: F)
-    where F: Continuation<()> {
+    where F: Continuation<()> + Send {
         let &EmitValueSignal (ref signal) = self;
         signal.base.emit ().call (rt, (), next);
         let data = signal.data.lock ().unwrap ();
@@ -247,12 +247,12 @@ where Self: Clone + 'static,
 }
 
 impl<A> Arrow<(),A> for AwaitValueSignal<A>
-where Self: Clone + 'static,
-      A: 'static,
+where Self: Clone + Send + 'static,
+      A: Send + 'static,
 {
 
     fn call<F> (&self, _: &mut Runtime, (): (), next: F)
-    where F: Continuation<A> {
+    where F: Continuation<A> + Send {
         let &AwaitValueSignal (ref signal) = self;
         let data = signal.data.lock ().unwrap ();
         let mut data = data.borrow_mut ();
@@ -270,8 +270,8 @@ where Self: Clone + 'static,
 
 struct UniqSignalRuntime<A> {
     current : Option <A>,
-    combine : Box<Fn(A,A) -> A>,
-    waiter  : Option<Box<Continuation<A>>>,
+    combine : Box<Fn(A,A) -> A + Send>,
+    waiter  : Option<Box<Continuation<A> + Send>>,
     awaken  : bool,
 }
 
@@ -298,12 +298,10 @@ pub struct AwaitUniqSignal<A> (UniqSignal<A>);
 
 impl<A> UniqSignal<A>
 where Self: Clone + 'static,
-      A: 'static
+      A: Send + 'static
 {
 
-    pub fn new (combine: Box<Fn(A,A) -> A>) -> (UniqSignal<A>, AwaitUniqSignal<A>)
-    where A: 'static,
-    {
+    pub fn new (combine: Box<Fn(A,A) -> A + Send>) -> (UniqSignal<A>, AwaitUniqSignal<A>) {
         let sig = UniqSignal {
             base: PureSignal::new (),
             data: Arc::new (Mutex::new (RefCell::new (
@@ -350,19 +348,19 @@ where Self: Clone + 'static,
 }
 
 impl<A> Signal for UniqSignal<A>
-where Self: Clone + 'static,
-      A: 'static
+where Self: Clone + Send + 'static,
+      A: Send + 'static
 {
     
     fn call_await_immediate (&self, rt: &mut Runtime,
-                             next: Box<Continuation<()>>)
+                             next: Box<Continuation<()> + Send>)
     {
         self.base.call_await_immediate (rt, next);
     }
 
     fn call_present (&self, rt: &mut Runtime,
-                     ifp: Box<Continuation<()>>,
-                     ifn: Box<Continuation<()>>)
+                     ifp: Box<Continuation<()> + Send>,
+                     ifn: Box<Continuation<()> + Send>)
     {
         self.base.call_present (rt, ifp, ifn);
     }
@@ -370,12 +368,13 @@ where Self: Clone + 'static,
 }
 
 impl<A> Arrow<A,()> for EmitUniqSignal<A>
-where Self: Clone + 'static,
-      A: 'static,
+where Self: Clone + Send + 'static,
+      UniqSignal<A>: Send,
+      A: Send + 'static,
 {
 
     fn call<F> (&self, rt: &mut Runtime, a: A, next: F)
-    where F: Continuation<()> {
+    where F: Continuation<()> + Send {
         let &EmitUniqSignal (ref signal) = self;
         signal.base.emit ().call (rt, (), next);
         let data = signal.data.lock ().unwrap ();
@@ -398,12 +397,12 @@ where Self: Clone + 'static,
 }
 
 impl<A> Arrow<(),A> for AwaitUniqSignal<A>
-where Self: 'static,
-      A: 'static,
+where Self: Send + 'static,
+      A: Send + 'static,
 {
 
     fn call<F> (&self, _: &mut Runtime, (): (), next: F)
-    where F: Continuation<A> {
+    where F: Continuation<A> + Send {
         let &AwaitUniqSignal (ref signal) = self;
         let data = signal.data.lock ().unwrap ();
         let mut data = data.borrow_mut ();

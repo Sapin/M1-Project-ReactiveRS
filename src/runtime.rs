@@ -1,6 +1,10 @@
 
-use std::collections::VecDeque;
+use std::thread;
+use std::sync::{Arc,Mutex};
+use std::cell::{RefCell};
 use std::mem::{swap};
+use std::option::{Option};
+use std::collections::VecDeque;
 
 //   ____            _   _                   _   _             
 //  / ___|___  _ __ | |_(_)_ __  _   _  __ _| |_(_) ___  _ __  
@@ -32,14 +36,30 @@ where F: FnOnce(&mut Runtime, V) + 'static {
 // |_| \_\\__,_|_| |_|\__|_|_| |_| |_|\___|
 //                                         
 
-pub struct Runtime {
-	current_instant : VecDeque <Box<Continuation<()>>>,
-	endof_instant   : VecDeque <Box<Continuation<()>>>,
-	next_instant    : VecDeque <Box<Continuation<()>>>,
+pub trait Runtime {
+
+    fn on_current_instant (&mut self, c: Box<Continuation<()> + Send>);
+    fn on_next_instant    (&mut self, c: Box<Continuation<()> + Send>);
+    fn on_end_of_instant  (&mut self, c: Box<Continuation<()> + Send>);
+
 }
 
-impl Runtime {
-    pub fn new () -> Self { Runtime {
+//  ____             ____              _   _                
+// / ___|  ___  __ _|  _ \ _   _ _ __ | |_(_)_ __ ___   ___ 
+// \___ \ / _ \/ _` | |_) | | | | '_ \| __| | '_ ` _ \ / _ \
+//  ___) |  __/ (_| |  _ <| |_| | | | | |_| | | | | | |  __/
+// |____/ \___|\__, |_| \_\\__,_|_| |_|\__|_|_| |_| |_|\___|
+//                |_|                                       
+
+pub struct SeqRuntime {
+	current_instant : VecDeque <Box<Continuation<()> + Send>>,
+	endof_instant   : VecDeque <Box<Continuation<()> + Send>>,
+	next_instant    : VecDeque <Box<Continuation<()> + Send>>,
+}
+
+impl SeqRuntime {
+
+    pub fn new () -> Self { SeqRuntime {
         current_instant : VecDeque::new (),
         endof_instant   : VecDeque::new (),
         next_instant    : VecDeque::new (),
@@ -60,16 +80,124 @@ impl Runtime {
         ! (self.current_instant.is_empty ())
     }
 
-	pub fn on_current_instant (&mut self, c: Box<Continuation<()>>) {
+}
+
+impl Runtime for SeqRuntime {
+
+	fn on_current_instant (&mut self, c: Box<Continuation<()> + Send>) {
 		self.current_instant.push_back (c)
 	}
 
-	pub fn on_next_instant (&mut self, c: Box<Continuation<()>>) {
+	fn on_next_instant    (&mut self, c: Box<Continuation<()> + Send>) {
 		self.next_instant.push_back (c)
 	}
 
-	pub fn on_end_of_instant (&mut self, c: Box<Continuation<()>>) {
+	fn on_end_of_instant  (&mut self, c: Box<Continuation<()> + Send>) {
 		self.endof_instant.push_back (c)
 	}
+
+}
+
+//  ____            ____              _   _                
+// |  _ \ __ _ _ __|  _ \ _   _ _ __ | |_(_)_ __ ___   ___ 
+// | |_) / _` | '__| |_) | | | | '_ \| __| | '_ ` _ \ / _ \
+// |  __/ (_| | |  |  _ <| |_| | | | | |_| | | | | | |  __/
+// |_|   \__,_|_|  |_| \_\\__,_|_| |_|\__|_|_| |_| |_|\___|
+//                                                         
+
+struct ParRuntimeCommon {
+    current_instant : VecDeque <Box<Continuation<()> + Send>>,
+    endof_instant   : VecDeque <Box<Continuation<()> + Send>>,
+    next_instant    : VecDeque <Box<Continuation<()> + Send>>,
+    working         : u32,
+    running         : bool,
+}
+
+pub struct ParRuntime {
+    base : Arc<Mutex<RefCell<ParRuntimeCommon>>>,
+    next : Option<Box<Continuation<()> + Send>>,
+}
+
+impl ParRuntime {
+
+    pub fn new () -> Self { ParRuntime {
+        base : Arc::new (Mutex::new (RefCell::new (ParRuntimeCommon {
+            current_instant : VecDeque::new (),
+            endof_instant   : VecDeque::new (),
+            next_instant    : VecDeque::new (),
+            running         : true,
+            working         : 0,
+        }))),
+        next : Option::None,
+    }}
+
+    pub fn spawn (&self) {
+        let base = self.base.clone ();
+        thread::spawn(move || {
+            let mut child = ParRuntime {
+                base : base,
+                next : Option::None,
+            };
+            {
+                let base = child.base.lock ().unwrap ();
+                let mut base = base.borrow_mut ();
+                base.working = base.working + 1;
+            }
+            loop {
+                {
+                    let base = child.base.lock ().unwrap ();
+                    let mut base = base.borrow_mut ();
+                    child.next = base.current_instant.pop_front ();
+                }
+                if child.next.is_none () {
+                    let mut need_dec = true;
+                    while child.next.is_none () {
+                        thread::yield_now ();
+                        let base = child.base.lock ().unwrap ();
+                        let mut base = base.borrow_mut ();
+                        if need_dec {
+                            base.working = base.working - 1;
+                            need_dec = false;
+                        }
+                        if !base.running { return; }
+                        child.next = base.current_instant.pop_front ();
+                        if !child.next.is_none () {
+                            base.working = base.working + 1;
+                        }
+                    }
+                }
+                while let Some (ct) = child.next.take () {
+                    Continuation::call_box (ct, &mut child, ());
+                }
+            }
+        });
+    }
+
+}
+
+impl Runtime for ParRuntime {
+
+    fn on_current_instant (&mut self, c: Box<Continuation<()> + Send>) {
+        if self.next.is_none () {
+            self.next = Option::Some (c);
+        } else {
+            let base = self.base.lock ().unwrap ();
+            let mut base = base.borrow_mut ();
+            base.current_instant.push_back (c);
+        }
+    }
+
+    fn on_next_instant    (&mut self, c: Box<Continuation<()> + Send>) {
+        let base = self.base.lock ().unwrap ();
+        let mut base = base.borrow_mut ();
+        base.next_instant.push_back (c);
+    }
+
+    fn on_end_of_instant  (&mut self, c: Box<Continuation<()> + Send>) {
+        let base = self.base.lock ().unwrap ();
+        let mut base = base.borrow_mut ();
+        base.endof_instant.push_back (c);
+    }
+
 }
 

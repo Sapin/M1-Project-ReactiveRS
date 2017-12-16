@@ -24,11 +24,11 @@ pub fn identity () -> Identity {
 }
 
 impl<A> Arrow<A,A> for Identity
-where A: 'static
+where A: Send + 'static
 {
 
     fn call<F> (&self, rt: &mut Runtime, a: A, next: F)
-    where F: Continuation<A> {
+    where F: Continuation<A> + Send {
         next.call (rt, a);
     }
 
@@ -47,7 +47,7 @@ pub struct Value<A,B> {
 }
 
 pub fn value<A,B> (val: B) -> Value<A,B>
-where B: Clone + 'static
+where B: Clone + Send + 'static
 {
     Value {
         phantom: PhantomData,
@@ -56,12 +56,12 @@ where B: Clone + 'static
 }
 
 impl<A,B> Arrow<A,B> for Value<A,B>
-where A: 'static,
-      B: Clone + 'static
+where A: Send + 'static,
+      B: Clone + Send + 'static
 {
     
     fn call<F> (&self, rt: &mut Runtime, _: A, next: F)
-    where F: Continuation<B> {
+    where F: Continuation<B> + Send {
         next.call (rt, self.val.clone ());
     }
 
@@ -79,19 +79,19 @@ pub struct Map<F> {
 }
 
 pub fn map<A,B,F> (f: F) -> Map<F>
-where F: Fn(A) -> B + 'static
+where F: Fn(A) -> B + Send + 'static
 {
     Map {f: f}
 }
 
 impl<A,B,F> Arrow<A,B> for Map<F>
-where A: 'static,
-      B: 'static,
-      F: Fn(A) -> B + 'static
+where A: Send + 'static,
+      B: Send + 'static,
+      F: Fn(A) -> B + Send + 'static
 {
     
     fn call<C> (&self, rt: &mut Runtime, a: A, next: C)
-    where C: Continuation<B> {
+    where C: Continuation<B> + Send {
         next.call (rt, (self.f) (a));
     }
 
@@ -109,18 +109,18 @@ pub struct Pause<A> {
 }
 
 pub fn pause<A> () -> Pause<A>
-where A: 'static {
+where A: Send + 'static {
     Pause {
         a: PhantomData
     }
 }
 
 impl<A> Arrow<A,A> for Pause<A>
-where A: 'static
+where A: Send + 'static
 {
     
     fn call<F> (&self, rt: &mut Runtime, a: A, next: F)
-    where F: Continuation<A> {
+    where F: Continuation<A> + Send {
         rt.on_next_instant (Box::new (move |rt: &mut Runtime, ()| {
             next.call (rt, a);
         }));
@@ -140,17 +140,17 @@ pub struct Fixpoint<X> {
 }
 
 pub fn fixpoint<A,B,X> (x: X) -> Fixpoint<X>
-where A: 'static,
-      B: 'static,
+where A: Send + 'static,
+      B: Send + 'static,
       X: Arrow<A,Result<A,B>> {
     Fixpoint {arr: Arc::new(x)}
 }
 
 fn fixpoint_rec<A,B,X,F> (arr: Arc<X>, rt: &mut Runtime, a: A, next: F)
-where A: 'static,
-      B: 'static,
-      X: Arrow<A,Result<A,B>> + 'static,
-      F: Continuation<B>
+where A: Send + 'static,
+      B: Send + 'static,
+      X: Arrow<A,Result<A,B>> + Sync + 'static,
+      F: Continuation<B> + Send
 {
     let rec = arr.clone ();
     (*arr).call (rt, a, move |rt: &mut Runtime, r: Result<A,B>| {
@@ -162,13 +162,13 @@ where A: 'static,
 }
 
 impl<A,B,X> Arrow<A,B> for Fixpoint<X>
-where A: 'static,
-      B: 'static,
-      X: Arrow<A,Result<A,B>> + 'static
+where A: Send + 'static,
+      B: Send + 'static,
+      X: Arrow<A,Result<A,B>> + Send + Sync + 'static
 {
 
     fn call<F> (&self, rt: &mut Runtime, a: A, next: F)
-    where F: Continuation<B> {
+    where F: Continuation<B> + Send {
         fixpoint_rec (self.arr.clone (), rt, a, next);
     }
 
@@ -187,10 +187,10 @@ pub struct Product<X,Y> {
 }
 
 pub fn product<A,B,C,D,X,Y> (x: X, y: Y) -> Product<X,Y>
-where A: 'static,
-      B: 'static,
-      C: 'static,
-      D: 'static,
+where A: Send + 'static,
+      B: Send + 'static,
+      C: Send + 'static,
+      D: Send + 'static,
       X: Arrow<A,B> + 'static,
       Y: Arrow<C,D> + 'static,
 {
@@ -207,19 +207,19 @@ enum ProductJoin<A,B> {
 }
 
 impl<A,B,C,D,X,Y> Arrow<(A,B),(C,D)> for Product<X,Y>
-where A: 'static,
-      B: 'static,
-      C: 'static,
-      D: 'static,
-      X: Arrow<A,C> + 'static,
-      Y: Arrow<B,D> + 'static,
+where A: Send + 'static,
+      B: Send + 'static,
+      C: Send + 'static,
+      D: Send + 'static,
+      X: Arrow<A,C> + Send + Sync + 'static,
+      Y: Arrow<B,D> + Send + Sync + 'static,
 {
 
     fn call<F> (&self, rt: &mut Runtime, (a,b): (A,B), next: F)
-    where F: Continuation<(C,D)> {
+    where F: Continuation<(C,D)> + Send {
         let join_a = Arc::new (Mutex::new (ProductJoin::NoValue));
         let join_b = join_a.clone ();
-        let next_a = Arc::new (RefCell::new (Option::Some (next)));
+        let next_a = Arc::new (Mutex::new (RefCell::new (Option::Some (next))));
         let next_b = next_a.clone ();
         let fst = self.fst.clone ();
         let snd = self.snd.clone ();
@@ -235,7 +235,8 @@ where A: 'static,
                     },
                     ProductJoin::ValueA (_) => { panic!(); },
                     ProductJoin::ValueB (d) => {
-                        let mut next = next_a.borrow_mut ();
+                        let next = next_a.lock ().unwrap ();
+                        let mut next = next.borrow_mut ();
                         let mut temp = Option::None;
                         swap (&mut *next, &mut temp);
                         temp.unwrap ().call (rt, (c,d));
@@ -254,7 +255,8 @@ where A: 'static,
                         swap (&mut *join, &mut temp);
                     },
                     ProductJoin::ValueA (c) => {
-                        let mut next = next_b.borrow_mut ();
+                        let next = next_b.lock ().unwrap ();
+                        let mut next = next.borrow_mut ();
                         let mut temp = Option::None;
                         swap (&mut *next, &mut temp);
                         temp.unwrap ().call (rt, (c,d));
@@ -279,19 +281,19 @@ pub struct Fork<X> {
 }
 
 pub fn fork<A,X> (x: X) -> Fork<X>
-where A: 'static,
+where A: Send + 'static,
       X: Arrow<A,()> + 'static,
 {
     Fork {arr: Arc::new (x)}
 }
 
 impl<A,X> Arrow<A,A> for Fork<X>
-where A: Clone + 'static,
-      X: Arrow<A,()> + 'static,
+where A: Clone + Send + 'static,
+      X: Arrow<A,()> + Send + Sync + 'static,
 {
 
     fn call<F> (&self, rt: &mut Runtime, a: A, next: F)
-    where F: Continuation<A> {
+    where F: Continuation<A> + Send {
         let arr = self.arr.clone ();
         let val = a.clone ();
         rt.on_current_instant (Box::new (move |rt: &mut Runtime, ()| {

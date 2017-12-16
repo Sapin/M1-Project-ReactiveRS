@@ -1,5 +1,5 @@
 
-use std::sync::{Arc};
+use std::sync::{Arc,Mutex};
 use std::cell::{RefCell};
 use std::option::{Option};
 use std::mem::{swap};
@@ -16,22 +16,22 @@ pub mod prim;
 // |____/|_|\__, |_| |_|\__,_|_|
 //          |___/               
 
-pub trait Signal : Sized + Clone + 'static {
+pub trait Signal : Sized + Clone + Send + 'static {
 
     fn call_await_immediate (&self, rt: &mut Runtime,
-                             next: Box<Continuation<()>>);
+                             next: Box<Continuation<()> + Send>);
 
     fn call_present (&self, rt: &mut Runtime,
-                     ifp: Box<Continuation<()>>,
-                     ifn: Box<Continuation<()>>);
+                     ifp: Box<Continuation<()> + Send>,
+                     ifn: Box<Continuation<()> + Send>);
 
     fn await_immediate (&self) -> AwaitImmediate<Self> {
         AwaitImmediate {signal: self.clone ()}
     }
 
     fn present<A,B,X,Y> (&self, ifp: X, ifn: Y) -> Present<Self,X,Y>
-    where A: 'static,
-          B: 'static,
+    where A: Send + 'static,
+          B: Send + 'static,
           X: Arrow<A,B>,
           Y: Arrow<A,B>,
     {
@@ -56,12 +56,12 @@ pub struct AwaitImmediate<S> {
 }
 
 impl<A,S> Arrow<A,A> for AwaitImmediate<S>
-where A: 'static,
+where A: Send + 'static,
       S: Signal,
 {
 
     fn call<F> (&self, rt: &mut Runtime, a: A, next: F)
-    where F: Continuation<A> {
+    where F: Continuation<A> + Send {
         self.signal.call_await_immediate (rt, Box::new (|rt: &mut Runtime, ()| {
             next.call (rt, a);
         }));
@@ -83,34 +83,46 @@ pub struct Present<S,X,Y> {
 }
 
 impl<A,B,S,X,Y> Arrow<A,B> for Present<S,X,Y>
-where A: 'static,
-      B: 'static,
+where A: Send + 'static,
+      B: Send + 'static,
       S: Signal,
-      X: Arrow<A,B>,
-      Y: Arrow<A,B>,
+      X: Arrow<A,B> + Send + Sync,
+      Y: Arrow<A,B> + Send + Sync,
 {
 
     fn call<F> (&self, rt: &mut Runtime, a: A, next: F)
-    where F: Continuation<B> {
+    where F: Continuation<B> + Send {
         let ifp = self.ifp.clone ();
         let ifn = self.ifn.clone ();
-        let val_p = Arc::new (RefCell::new (Option::Some (a)));
+        let val_p = Arc::new (Mutex::new (RefCell::new (Option::Some (a))));
         let val_n = val_p.clone ();
-        let next_p = Arc::new (RefCell::new (Option::Some (next)));
+        let next_p = Arc::new (Mutex::new (RefCell::new (Option::Some (next))));
         let next_n = next_p.clone ();
         self.signal.call_present (rt,
             Box::new (move |rt: &mut Runtime, ()| {
                 let mut val = Option::None;
                 let mut next = Option::None;
-                swap (&mut *(*val_p ).borrow_mut (), &mut val );
-                swap (&mut *(*next_p).borrow_mut (), &mut next);
+                {
+                    let mut val_p = val_p.lock ().unwrap ();
+                    swap (&mut *(*val_p).borrow_mut (), &mut val );
+                }
+                {
+                    let mut next_p = next_p.lock ().unwrap ();
+                    swap (&mut *(*next_p).borrow_mut (), &mut next);
+                }
                 ifp.call (rt, val.unwrap (), next.unwrap ());
             }),
             Box::new (move |rt: &mut Runtime, ()| {
                 let mut val = Option::None;
                 let mut next = Option::None;
-                swap (&mut *(*val_n ).borrow_mut (), &mut val );
-                swap (&mut *(*next_n).borrow_mut (), &mut next);
+                {
+                    let mut val_n = val_n.lock ().unwrap ();
+                    swap (&mut *(*val_n ).borrow_mut (), &mut val );
+                }
+                {
+                    let mut next_n = next_n.lock ().unwrap ();
+                    swap (&mut *(*next_n).borrow_mut (), &mut next);
+                }
                 ifn.call (rt, val.unwrap (), next.unwrap ());
             })
         );
