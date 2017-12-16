@@ -261,3 +261,154 @@ where Self: Clone + 'static,
 
 }
 
+//  _   _       _       ____  _                   _ 
+// | | | |_ __ (_) __ _/ ___|(_) __ _ _ __   __ _| |
+// | | | | '_ \| |/ _` \___ \| |/ _` | '_ \ / _` | |
+// | |_| | | | | | (_| |___) | | (_| | | | | (_| | |
+//  \___/|_| |_|_|\__, |____/|_|\__, |_| |_|\__,_|_|
+//                   |_|        |___/               
+
+struct UniqSignalRuntime<A> {
+    current : Option <A>,
+    combine : Box<Fn(A,A) -> A>,
+    waiter  : Option<Box<Continuation<A>>>,
+    awaken  : bool,
+}
+
+pub struct UniqSignal<A> {
+    base : PureSignal,
+    data : Arc<Mutex<RefCell<UniqSignalRuntime<A>>>>,
+}
+
+impl<A> Clone for UniqSignal<A> {
+    
+    fn clone (&self) -> UniqSignal<A> {
+        UniqSignal {
+            base: self.base.clone (),
+            data: self.data.clone (),
+        }
+    }
+
+}
+
+#[derive(Clone)]
+pub struct EmitUniqSignal<A> (UniqSignal<A>);
+
+pub struct AwaitUniqSignal<A> (UniqSignal<A>);
+
+impl<A> UniqSignal<A>
+where Self: Clone + 'static,
+      A: 'static
+{
+
+    pub fn new (combine: Box<Fn(A,A) -> A>) -> (UniqSignal<A>, AwaitUniqSignal<A>)
+    where A: 'static,
+    {
+        let sig = UniqSignal {
+            base: PureSignal::new (),
+            data: Arc::new (Mutex::new (RefCell::new (
+                UniqSignalRuntime {
+                    current : Option::None,
+                    combine : combine,
+                    waiter  : Option::None,
+                    awaken  : false,
+                }
+            ))),
+        };
+        let waiter = AwaitUniqSignal (sig.clone ());
+        (sig, waiter)
+    }
+
+    pub fn emit (&self) -> EmitUniqSignal<A> {
+        EmitUniqSignal (self.clone ())
+    }
+
+    fn awake (&self, rt: &mut Runtime, data: &mut UniqSignalRuntime<A>) {
+        if data.awaken {} else {
+            data.awaken = true;
+            let signal = self.clone ();
+            rt.on_end_of_instant (Box::new (move |rt: &mut Runtime, ()| {
+                let data = signal.data.lock ().unwrap ();
+                let mut data = data.borrow_mut ();
+                (*data).awaken = false;
+                let mut current = Option::None;
+                swap (&mut (*data).current, &mut current);
+                match current {
+                    Option::None => {},
+                    Option::Some (current) => {
+                        if let Option::Some (ct) = (*data).waiter.take () {
+                            rt.on_current_instant (Box::new (move |rt: &mut Runtime, ()| {
+                                ct.call_box (rt, current);
+                            }));
+                        }
+                    },
+                };
+            }));
+        }
+    }
+
+}
+
+impl<A> Signal for UniqSignal<A>
+where Self: Clone + 'static,
+      A: 'static
+{
+    
+    fn call_await_immediate (&self, rt: &mut Runtime,
+                             next: Box<Continuation<()>>)
+    {
+        self.base.call_await_immediate (rt, next);
+    }
+
+    fn call_present (&self, rt: &mut Runtime,
+                     ifp: Box<Continuation<()>>,
+                     ifn: Box<Continuation<()>>)
+    {
+        self.base.call_present (rt, ifp, ifn);
+    }
+
+}
+
+impl<A> Arrow<A,()> for EmitUniqSignal<A>
+where Self: Clone + 'static,
+      A: 'static,
+{
+
+    fn call<F> (&self, rt: &mut Runtime, a: A, next: F)
+    where F: Continuation<()> {
+        let &EmitUniqSignal (ref signal) = self;
+        signal.base.emit ().call (rt, (), next);
+        let data = signal.data.lock ().unwrap ();
+        let mut data = data.borrow_mut ();
+        (*signal).awake (rt, &mut *data);
+        let mut temp = Option::None;
+        swap (&mut data.current, &mut temp);
+        match temp {
+            Option::None => {
+                temp = Option::Some (a);
+                swap (&mut data.current, &mut temp);
+            },
+            Option::Some (current) => {
+                temp = Option::Some ((*data.combine) (current, a));
+                swap (&mut data.current, &mut temp);
+            },
+        };
+    }
+
+}
+
+impl<A> Arrow<(),A> for AwaitUniqSignal<A>
+where Self: 'static,
+      A: 'static,
+{
+
+    fn call<F> (&self, _: &mut Runtime, (): (), next: F)
+    where F: Continuation<A> {
+        let &AwaitUniqSignal (ref signal) = self;
+        let data = signal.data.lock ().unwrap ();
+        let mut data = data.borrow_mut ();
+        data.waiter = Option::Some (Box::new (next));
+    }
+
+}
+
