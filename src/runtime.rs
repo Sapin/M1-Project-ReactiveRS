@@ -148,22 +148,18 @@ impl ParRuntime {
                     let base = child.base.lock ().unwrap ();
                     let mut base = base.borrow_mut ();
                     child.next = base.current_instant.pop_front ();
+                    if child.next.is_none () {
+                        base.working = base.working - 1;
+                    }
                 }
-                if child.next.is_none () {
-                    let mut need_dec = true;
-                    while child.next.is_none () {
-                        thread::yield_now ();
-                        let base = child.base.lock ().unwrap ();
-                        let mut base = base.borrow_mut ();
-                        if need_dec {
-                            base.working = base.working - 1;
-                            need_dec = false;
-                        }
-                        if !base.running { return; }
-                        child.next = base.current_instant.pop_front ();
-                        if !child.next.is_none () {
-                            base.working = base.working + 1;
-                        }
+                while child.next.is_none () {
+                    thread::yield_now ();
+                    let base = child.base.lock ().unwrap ();
+                    let mut base = base.borrow_mut ();
+                    if !base.running { return; }
+                    child.next = base.current_instant.pop_front ();
+                    if !child.next.is_none () {
+                        base.working = base.working + 1;
                     }
                 }
                 while let Some (ct) = child.next.take () {
@@ -171,6 +167,30 @@ impl ParRuntime {
                 }
             }
         });
+    }
+
+    pub fn execute (&mut self) {
+        loop {
+            while self.next.is_none () {
+                let base = self.base.lock ().unwrap ();
+                let mut base = base.borrow_mut ();
+                self.next = base.current_instant.pop_front ();
+                if self.next.is_none () {
+                    if base.working == 0 {
+                        swap (&mut base.current_instant, &mut base.endof_instant);
+                        base.current_instant.append (&mut base.next_instant);
+                        base.running = !base.current_instant.is_empty ();
+                        if !base.running { return; }
+                        self.next = base.current_instant.pop_front ();
+                    } else {
+                        thread::yield_now ();
+                    }
+                }
+            }
+            while let Some (ct) = self.next.take () {
+                Continuation::call_box (ct, &mut self, ());
+            }
+        }
     }
 
 }
