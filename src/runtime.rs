@@ -38,6 +38,8 @@ where F: FnOnce(&mut Runtime, V) + 'static {
 
 pub trait Runtime {
 
+    fn execute (&mut self);
+
     fn on_current_instant (&mut self, c: Box<Continuation<()> + Send>);
     fn on_next_instant    (&mut self, c: Box<Continuation<()> + Send>);
     fn on_end_of_instant  (&mut self, c: Box<Continuation<()> + Send>);
@@ -65,10 +67,6 @@ impl SeqRuntime {
         next_instant    : VecDeque::new (),
     }}
 
-    pub fn execute (&mut self) {
-        while self.instant () {}
-    }
-
     pub fn instant (&mut self) -> bool {
         while let Some (ct) = self.current_instant.pop_front () {
             Continuation::call_box (ct, self, ());
@@ -83,6 +81,10 @@ impl SeqRuntime {
 }
 
 impl Runtime for SeqRuntime {
+
+    fn execute (&mut self) {
+        while self.instant () {}
+    }
 
 	fn on_current_instant (&mut self, c: Box<Continuation<()> + Send>) {
 		self.current_instant.push_back (c)
@@ -169,7 +171,11 @@ impl ParRuntime {
         });
     }
 
-    pub fn execute (&mut self) {
+}
+
+impl Runtime for ParRuntime {
+
+    fn execute (&mut self) {
         loop {
             while self.next.is_none () {
                 let base = self.base.lock ().unwrap ();
@@ -177,8 +183,10 @@ impl ParRuntime {
                 self.next = base.current_instant.pop_front ();
                 if self.next.is_none () {
                     if base.working == 0 {
-                        swap (&mut base.current_instant, &mut base.endof_instant);
-                        base.current_instant.append (&mut base.next_instant);
+                        let mut temp = VecDeque::new ();
+                        temp.append (&mut base.endof_instant);
+                        temp.append (&mut base.next_instant);
+                        base.current_instant.append (&mut temp);
                         base.running = !base.current_instant.is_empty ();
                         if !base.running { return; }
                         self.next = base.current_instant.pop_front ();
@@ -188,14 +196,10 @@ impl ParRuntime {
                 }
             }
             while let Some (ct) = self.next.take () {
-                Continuation::call_box (ct, &mut self, ());
+                Continuation::call_box (ct, self, ());
             }
         }
     }
-
-}
-
-impl Runtime for ParRuntime {
 
     fn on_current_instant (&mut self, c: Box<Continuation<()> + Send>) {
         if self.next.is_none () {
