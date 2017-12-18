@@ -24,7 +24,7 @@ mod tests {
             .bind (pause ())
             .bind (map (|()| { println!("bar"); })) 
         )
-        .execute (((),()));
+        .execute_seq (((),()));
     }
 
     //#[test]
@@ -55,7 +55,7 @@ mod tests {
         .bind (fork (p1))
         .bind (fork (p2))
         .bind (fork (p3))
-        .execute (());
+        .execute_seq (());
     }
 
     //#[test]
@@ -97,7 +97,7 @@ mod tests {
         .bind (fork (p2))
         .bind (fork (p3))
         .bind (fork (p4))
-        .execute (());
+        .execute_seq (());
     }
 
     #[test]
@@ -134,12 +134,13 @@ mod tests {
             .bind ( map (|i: u32| { println! ("{}", i); Result::Ok (()) }));
             fixpoint (p)
         };
+
         identity ()
         .bind (fork (p1))
         .bind (fork (p2))
         .bind (fork (p3))
         .bind (fork (p4))
-        .execute (());
+        .execute_par (4,());
     }
 
 }

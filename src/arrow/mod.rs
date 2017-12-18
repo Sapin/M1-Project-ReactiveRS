@@ -5,7 +5,7 @@ use std::option::{Option};
 use std::mem::{swap};
 use std::marker::{PhantomData};
 
-use runtime::{Runtime,SeqRuntime,Continuation};
+use runtime::{Runtime,SeqRuntime,ParRuntime,Continuation};
 
 pub mod prim;
 
@@ -24,8 +24,7 @@ where A: Send + 'static,
     fn call<C> (&self, rt: &mut Runtime, a: A, next: C)
     where C: Continuation<B> + Send;
 
-    fn execute (self, a: A) -> B {
-        let mut rt = SeqRuntime::new ();
+    fn execute_with_rt (self, rt: &mut Runtime, a: A) -> B {
         let val = Arc::new (Mutex::new (RefCell::new (Option::None)));
         let back = val.clone ();
         rt.on_current_instant (Box::new (move |rt: &mut Runtime, ()| {
@@ -42,6 +41,19 @@ where A: Send + 'static,
             Option::None => panic! (),
             Option::Some (b) => b
         }
+    }
+
+    fn execute_seq (self, a: A) -> B {
+        let mut rt = SeqRuntime::new ();
+        self.execute_with_rt (&mut rt, a)
+    }
+
+    fn execute_par (self, n: u32, a: A) -> B {
+        let mut rt = ParRuntime::new ();
+        for _ in 1..n {
+            rt.spawn ();
+        }
+        self.execute_with_rt (&mut rt, a)
     }
 
     fn bind<C,Y> (self, y: Y) -> Bind<B,Self,Y>
