@@ -174,6 +174,54 @@ where A: Send + 'static,
 
 }
 
+//  ____             ____                _ 
+// / ___|  ___  __ _|  _ \ _ __ ___   __| |
+// \___ \ / _ \/ _` | |_) | '__/ _ \ / _` |
+//  ___) |  __/ (_| |  __/| | | (_) | (_| |
+// |____/ \___|\__, |_|   |_|  \___/ \__,_|
+//                |_|                      
+
+pub struct SeqProd<X,Y> {
+    fst: Arc <X>,
+    snd: Arc <Y>,
+}
+
+pub fn seqprod<A,B,C,D,X,Y> (x: X, y: Y) -> SeqProd<X,Y>
+where A: Send + 'static,
+      B: Send + 'static,
+      C: Send + 'static,
+      D: Send + 'static,
+      X: Arrow<A,B> + 'static,
+      Y: Arrow<C,D> + 'static,
+{
+    SeqProd {
+        fst: Arc::new (x),
+        snd: Arc::new (y),
+    }
+}
+
+impl<A,B,C,D,X,Y> Arrow<(A,B),(C,D)> for SeqProd<X,Y>
+where A: Send + 'static,
+      B: Send + 'static,
+      C: Send + 'static,
+      D: Send + 'static,
+      X: Arrow<A,C> + Send + Sync + 'static,
+      Y: Arrow<B,D> + Send + Sync + 'static,
+{
+
+    fn call<F> (&self, rt: &mut Runtime, (a,b): (A,B), next: F)
+    where F: Continuation<(C,D)> + Send {
+        let fst = self.fst.clone ();
+        let snd = self.snd.clone ();
+        (*fst).call (rt, a, move |rt: &mut Runtime, c:C| {
+            (*snd).call (rt, b, move |rt: &mut Runtime, d:D| {
+                next.call (rt, (c,d));
+            });
+        });
+    }
+
+}
+
 //  ____                _            _   
 // |  _ \ _ __ ___   __| |_   _  ___| |_ 
 // | |_) | '__/ _ \ / _` | | | |/ __| __|
