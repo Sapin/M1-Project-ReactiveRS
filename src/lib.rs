@@ -1,7 +1,10 @@
+#![type_length_limit="2097152"]
 
 pub mod runtime;
 pub mod arrow;
 pub mod signal;
+#[macro_use]
+pub mod macros;
 
 #[cfg(test)]
 mod tests {
@@ -141,6 +144,27 @@ mod tests {
         .bind (fork (p3))
         .bind (fork (p4))
         .execute_par (4,());
+    }
+
+    #[test]
+    fn test_macro_1 () {
+        let p = arrow!(i => { let (a,b) : (u32,u32) = i; println!("({}, {})\n", a, b); });
+        arrow!(
+            val (5u32, 41u32);
+            pause;
+            pause;
+            arrow!(fix arrow!(
+                i => {
+                    if i < 10 {
+                        println!("{}", i); Ok(i + 1)
+                    } else { 
+                        Result::Err(i)
+                    }
+                }
+            )), arrow!(i => { i + 1 });
+            || p;
+            id
+        ).execute_seq(());
     }
 
 }
