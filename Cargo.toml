@@ -3,4 +3,14 @@ name = "projet_reactive"
 version = "0.1.0"
 authors = ["David Reboullet <david.reboullet@ens.fr>"]
 
+[lib]
+name = "ReactiveRS"
+path = "src/lib.rs"
+
+[[bin]]
+name = "pacman"
+path = "src/pacman.rs"
+
 [dependencies]
+piston_window = "0.70.0"
+
