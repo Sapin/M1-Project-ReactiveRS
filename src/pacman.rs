@@ -1,5 +1,6 @@
 
 extern crate piston_window;
+extern crate sdl2_window;
 
 pub mod runtime;
 pub mod arrow;
@@ -8,16 +9,18 @@ pub mod signal;
 pub mod macros;
 
 use piston_window::*;
-use std::result::{Result};
-use arrow::{Arrow};
-use arrow::prim::{identity,value,map,pause,fixpoint,product,fork};
-use signal::{Signal};
-use signal::prim::{PureSignal,ValueSignal,UniqSignal};
-
+use sdl2_window::Sdl2Window;
+// use std::result::{Result};
+// use arrow::{Arrow};
+// use arrow::prim::{identity,value,map,pause,fixpoint,product,fork};
+// use signal::{Signal};
+// use signal::prim::{PureSignal,ValueSignal,UniqSignal};
+// 
 fn main() {
-    let mut window: PistonWindow =
-        WindowSettings::new("Hello Piston!", [640,480])
-        .exit_on_esc(true).build().unwrap();
+    let glutin_window = WindowSettings::new("ReactivePacman", (640,480))
+        .exit_on_esc(false).resizable(false).srgb(false)
+        .build().unwrap();
+    let mut window: PistonWindow<Sdl2Window> = PistonWindow::new(OpenGL::V3_2, 0, glutin_window);
     while let Some(event) = window.next() {
         window.draw_2d(&event, |context, graphics| {
             clear([1.0; 4], graphics);
