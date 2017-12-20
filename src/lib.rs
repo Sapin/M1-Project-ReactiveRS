@@ -61,7 +61,7 @@ mod tests {
         .execute_seq (());
     }
 
-    //#[test]
+    #[test]
     fn test_value_signal () {
         let s = ValueSignal::new (Box::new (|a: u32, b: u32| -> u32 {a+b}));
         let p1 = identity ()
@@ -104,6 +104,52 @@ mod tests {
     }
 
     #[test]
+    fn test_value_signal_macro () {
+        let s = ValueSignal::new (Box::new (|a: u32, b: u32| -> u32 {a+b}));
+        let p1 = arrow!(
+            emit s, 32;
+            emit s, 10;
+            pause;
+            emit s, 42;
+            pause;
+            pause
+        );
+        let p2 = arrow!(
+            fix arrow!(
+                present s, arrow!(
+                    { println! ("present"); };
+                    pause;
+                    ret Result::Ok (())
+                ), arrow!(
+                    { println! ("not present"); };
+                    ret Result::Err (())
+                )
+            )
+        );
+        let p3 = arrow!(
+            fix arrow!(
+                await immediate s;
+                { println!("s received"); };
+                ret Result::Ok(());
+                pause
+            )
+        );
+        let p4 = arrow!(
+            fix arrow!(
+                await s;
+                i => { println! ("{}", i); };
+                ret Result::Ok(())
+            )
+        );
+        arrow!(
+            || p1;
+            || p2;
+            || p3;
+            || p4
+        ).execute_seq (());
+    }
+
+    //#[test]
     fn test_uniq_signal () {
         let (s,await) = UniqSignal::new (Box::new (|a: u32, b: u32| -> u32 {a+b}));
         let p1 = identity ()
@@ -146,11 +192,11 @@ mod tests {
         .execute_par (4,());
     }
 
-    #[test]
+    //#[test]
     fn test_macro_1 () {
         let p = arrow!(i => { let (a,b) : (u32,u32) = i; println!("({}, {})\n", a, b); });
         arrow!(
-            val (5u32, 41u32);
+            ret (5u32, 41u32);
             pause;
             pause;
             arrow!(fix arrow!(

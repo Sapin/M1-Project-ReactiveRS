@@ -19,11 +19,11 @@ macro_rules! arrow {
         identity().bind(arrow!($($y)+))
     );
 
-    (val $v:expr) => (
+    (ret $v:expr) => (
         value($v)
     );
 
-    (val $v:expr; $($y:tt)+) => (
+    (ret $v:expr; $($y:tt)+) => (
         value($v).bind(arrow!($($y)+))
     );
 
@@ -31,7 +31,15 @@ macro_rules! arrow {
         map(|$x| $f)
     );
 
+    ($x:pat => $f:block) => (
+        map(|$x| $f)
+    );
+
     ($x:ident => $f:block; $($y:tt)+) => (
+        map(|$x| $f).bind(arrow!($($y)+))
+    );
+
+    ($x:pat => $f:block; $($y:tt)+) => (
         map(|$x| $f).bind(arrow!($($y)+))
     );
 
@@ -59,6 +67,54 @@ macro_rules! arrow {
         product($x1, $x2).bind(arrow!($($y)+))
     );
 
+    (emit $x:expr) => (
+        $x.emit()
+    );
+
+    (emit $x:expr; $($y:tt)+) => (
+        $x.emit().bind(arrow!($($y)+))
+    );
+
+    (emit $x:expr, $v:expr) => (
+        value($v).bind($x.emit())
+    );
+
+    (emit $x:expr, $v:expr; $($y:tt)+) => (
+        value($v).bind($x.emit()).bind(arrow!($($y)+))
+    );
+
+    (present $s:expr, $then:expr, $else:expr) => (
+        $s.present($then, $else)
+    );
+
+    (present $s:expr, $then:expr, $else:expr; $($y:tt)+) => (
+        $s.present($then, $else).bind(arrow!($($y)+))
+    );
+
+    (await immediate $s:expr) => (
+        $s.await_immediate()
+    );
+
+    (await immediate $s:expr; $($y:tt)+) => (
+        $s.await_immediate().bind(arrow!($($y)+))
+    );
+
+    (await $s:expr) => (
+        $s.await()
+    );
+
+    (await $s:expr; $($y:tt)+) => (
+        $s.await().bind(arrow!($($y)+))
+    );
+
+    ($b:block) => (
+        map(|_| $b)
+    );
+
+    ($b:block; $($y:tt)+) => (
+        map(|_| $b).bind(arrow!($($y)+))
+    );
+
     ($x:expr) => (
         $x
     );
@@ -67,8 +123,5 @@ macro_rules! arrow {
         $x.bind(arrow!($($y)+))
     );
 
-    ($prc:block, $($y:block),*) => (
-        product(arrow!($prc), arrow!($($y),*))
-    );
 }
 
