@@ -4,6 +4,6 @@ let
   packages = with nixpkgs.rustChannels.stable; [ rust ];
 in pkgs.stdenv.mkDerivation {
   name = "programmation-parallele-tp1";
-  buildInputs =  packages;
+  buildInputs = packages ++ [ pkgs.SDL2 ];
 }
 
