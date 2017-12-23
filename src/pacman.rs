@@ -1,5 +1,6 @@
 
 extern crate piston_window;
+extern crate piston;
 extern crate sdl2_window;
 
 pub mod runtime;
@@ -8,30 +9,37 @@ pub mod signal;
 #[macro_use]
 pub mod macros;
 
+use std::sync::Arc;
+use std::sync::Mutex;
+use std::sync::mpsc;
+use std::thread;
+use std::result::{Result};
+
 use piston_window::*;
 use sdl2_window::Sdl2Window;
-use std::result::{Result};
+
 use arrow::{Arrow};
 use arrow::prim::{identity,value,map,pause,fixpoint,product,fork};
 use signal::{Signal};
 use signal::prim::{PureSignal,ValueSignal,UniqSignal};
 
-#[derive(Clone,Copy)]
+#[derive(Clone,Copy,Debug)]
 struct Pos {
     x: usize,
     y: usize,
 }
 
 struct Settings {
-    width: usize,
-    height: usize,
-    cell_size: usize,
-    start_pos: Pos,
-    animation_len: usize,
-    invincible_len: usize,
-    yellow_pearls : Vec<Pos>,
-    phantoms : Vec<(Pos,Pos)>,
-    walls : Vec<(Pos,Pos)>
+    width:           usize,
+    height:          usize,
+    cell_size:       usize,
+    start_pos:       Pos,
+    animation_len:   usize,
+    invincible_len:  usize,
+    yellow_pearls :  Vec<Pos>,
+    phantoms_start : Vec<Pos>,
+    phantoms_end :   Vec<Pos>,
+    walls :          Vec<(Pos,Pos)>
 }
 
 #[derive(Clone,Copy,Debug)]
@@ -41,12 +49,13 @@ enum CellContent {
     Empty
 }
 
-#[derive(Clone,Copy)]
+#[derive(Clone,Copy,Debug)]
 enum Directions {
     Up,
     Down,
     Left,
-    Right
+    Right,
+    None
 }
 
 #[derive(Clone,Copy)]
@@ -106,7 +115,7 @@ fn init_board(settings: &Settings) -> (Walls,Pearls) {
     (walls,pearls)
 }
 
-#[derive(Clone)]
+#[derive(Clone,Debug)]
 struct DrawingData {
     pacman:   Option<Pos>,
     phantoms: Vec<Pos>,
@@ -187,26 +196,36 @@ fn can_move(pos: &Pos, dir: &Directions, walls: &Walls) -> bool {
         Directions::Down  => !walls[pos.x][pos.y].wall_down,
         Directions::Left  => !walls[pos.x][pos.y].wall_left,
         Directions::Right => !walls[pos.x][pos.y].wall_right,
+        _                 => true
+    }
+}
+
+fn update_pos(p: &Pos, d: &Directions) -> Option<Pos> {
+    match *d {
+        Directions::Up    => Some(Pos { x: p.x, y: p.y - 1 }),
+        Directions::Down  => Some(Pos { x: p.x, y: p.y + 1 }),
+        Directions::Left  => Some(Pos { x: p.x - 1, y: p.y }),
+        Directions::Right => Some(Pos { x: p.x + 1, y: p.y }),
+        _                 => None
     }
 }
 
 fn main() {
     let gsettings : Settings = Settings {
-        width: 20,
-        height: 11,
-        cell_size: 50,
-        start_pos: Pos { x: 0, y:0 },
-        animation_len: 100,
+        width:          20,
+        height:         11,
+        cell_size:      50,
+        start_pos:      Pos { x: 5, y:5 },
+        animation_len:  100,
         invincible_len: 100,
-        yellow_pearls: vec![Pos{ x:1, y:1 }],
-        phantoms: Vec::new(),
-        walls: Vec::new()
-    };
-    let ddata : DrawingData = DrawingData {
-        pacman: Some(Pos{ x:0, y:0 }),
-        phantoms: Vec::new()
+        yellow_pearls:  vec![Pos{ x:1, y:1 }],
+        phantoms_start: Vec::new(),
+        phantoms_end:   Vec::new(),
+        walls:          Vec::new()
     };
     let (walls, mut pearls) = init_board(&gsettings);
+    let walls = Arc::new(walls);
+    let walls_thread = walls.clone();
 
     let glutin_window = WindowSettings::new("ReactivePacman",
                                             (((gsettings.width+1) * gsettings.cell_size) as u32,
@@ -215,8 +234,112 @@ fn main() {
         .build().unwrap();
     let mut window: PistonWindow<Sdl2Window> = PistonWindow::new(OpenGL::V3_2, 0, glutin_window);
 
+    let (drawing_tx,drawing_rx) = mpsc::channel();
+    let drawing_tx = Arc::new(Mutex::new(drawing_tx));
+    let (action_tx,action_rx) = mpsc::channel();
+    let action_rx = Arc::new(Mutex::new(action_rx));
+
+    let mut ddata : DrawingData = DrawingData {
+        pacman:   Some(gsettings.start_pos.clone()),
+        phantoms: gsettings.phantoms_start.clone()
+    };
+
+    thread::spawn(move || {
+        let drawing = drawing_tx.clone();
+        let action  = action_rx.clone();
+        let walls   = walls_thread;
+
+        // The previous position of pacman in tiles, and the directionnal order
+        let pacman_order = ValueSignal::new(Box::new(
+                |a : (Pos,Directions), b : (Pos,Directions)| -> (Pos,Directions) { a }));
+        // The position in pixel of pacman
+        let pacman_position = ValueSignal::new(Box::new(
+                |a : Option<Pos>, b : Option<Pos>| -> Option<Pos> { if let None = a { b } else { a } }));
+
+        let control_process = fixpoint::<(),(),_>(arrow!(
+            mv x => {
+                let action = action.clone();
+                let action = action.lock().unwrap();
+                let mut v = (Pos { x: 0, y: 0 }, Directions::None);
+                if let Result::Ok(v2) = action.try_recv() {
+                    /* Clean buffer */
+                    while let Result::Ok(v) = action.try_recv() { };
+                    v = v2;
+                };
+                v
+            };
+            emit pacman_order;
+            pause;
+            ret Result::Ok(())
+        ));
+
+        let pacman_process = fixpoint::<(),(),_>(arrow!(
+            await pacman_order;
+            mv x => {
+                let walls = walls.clone();
+                let (p,d) = x;
+                if can_move(&p, &d, &walls) {
+                    update_pos(&p, &d)
+                } else {
+                    Some(p)
+                }
+            };
+            emit pacman_position;
+            ret Result::Ok(())
+        ));
+
+        let draw_process = fixpoint::<(),(),_>(arrow!(
+            await pacman_position;
+            mv p => {
+                if let None = p { () } else {
+                    let drawing = drawing.clone();
+                    let drawing = drawing.lock().unwrap();
+                    let ddata = DrawingData {
+                        pacman: p,
+                        phantoms: Vec::new()
+                    };
+                    drawing.send(ddata).unwrap();
+                }
+            };
+            ret Result::Ok(())
+        ));
+
+        arrow!(
+            || control_process;
+            || pacman_process;
+            || draw_process
+        ).execute_seq(());
+
+    });
+    let walls = walls.clone();
+
     while let Some(event) = window.next() {
         draw_board(&walls, &pearls, &gsettings, &ddata, &mut window, &event);
+
+        event.press(|b| {
+            match b {
+                Button::Keyboard(k) =>
+                    match k {
+                        Key::Z => action_tx.send((ddata.clone().pacman.unwrap(),
+                                                  Directions::Up)               ).unwrap(),
+                        Key::Q => action_tx.send((ddata.clone().pacman.unwrap(),
+                                                  Directions::Left)             ).unwrap(),
+                        Key::S => action_tx.send((ddata.clone().pacman.unwrap(),
+                                                  Directions::Down)             ).unwrap(),
+                        Key::D => action_tx.send((ddata.clone().pacman.unwrap(),
+                                                  Directions::Right)            ).unwrap(),
+                        _      => ()
+                    },
+                _ => ()
+            }
+        });
+
+        while let Result::Ok(data) = drawing_rx.try_recv() {
+            match data.pacman {
+                None    => (),
+                Some(_) => ddata = data
+            }
+        }
     }
 }
 
