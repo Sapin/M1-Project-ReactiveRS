@@ -92,21 +92,16 @@ fn init_board(settings: &Settings) -> (Walls,Pearls) {
     };
     for w in &settings.walls {
         let &(p1,p2) = w;
-        if p1.x < p2.x {
-            walls[p1.x][p1.y].wall_right = true;
-            walls[p2.x][p2.y].wall_left  = true;
-        }
-        if p1.x > p2.x {
-            walls[p1.x][p1.y].wall_left  = true;
-            walls[p2.x][p2.y].wall_right = true;
-        }
-        if p1.y < p2.y {
-            walls[p1.x][p1.y].wall_down  = true;
-            walls[p2.x][p2.y].wall_up    = true;
-        }
-        if p1.y < p2.y {
-            walls[p1.x][p1.y].wall_up    = true;
-            walls[p2.x][p2.y].wall_down  = true;
+        if p1.x == p2.x {
+            for y in (p2.y+1)..(p1.y+1) {
+                walls[p1.x-1][y].wall_right = true;
+                walls[p1.x]  [y].wall_left  = true;
+            }
+        } else {
+            for x in p1.x..p2.x {
+                walls[x][p1.y].wall_down = true;
+                walls[x][p1.y+1].wall_up = true;
+            }
         }
     };
     for yellow in &settings.yellow_pearls {
@@ -131,7 +126,7 @@ fn compress_ddata(a : DrawingData, b : DrawingData) -> DrawingData {
 fn draw_board(walls: &Walls, pearls: &Pearls, settings: &Settings, ddata: &DrawingData,
               window: &mut PistonWindow<Sdl2Window>, ev: &Event) {
     let cs = settings.cell_size;
-    let div = 10;
+    let div = 20;
     let wall_color = [0.2,0.2,1.0,1.0];
     window.draw_2d(ev, |context, graphics| {
         clear([0.0, 0.0, 0.1, 1.0], graphics);
@@ -212,16 +207,22 @@ fn update_pos(p: &Pos, d: &Directions) -> Option<Pos> {
 
 fn main() {
     let gsettings : Settings = Settings {
-        width:          20,
-        height:         11,
+        width:          10,
+        height:         6,
         cell_size:      50,
-        start_pos:      Pos { x: 5, y:5 },
+        start_pos:      Pos { x: 1, y: 4 },
         animation_len:  100,
         invincible_len: 100,
-        yellow_pearls:  vec![Pos{ x:1, y:1 }],
-        phantoms_start: Vec::new(),
-        phantoms_end:   Vec::new(),
-        walls:          Vec::new()
+        yellow_pearls:  vec![Pos{ x:3, y:4 }, Pos { x:6, y:4 }, Pos { x:3, y:2 }, Pos { x:6, y:2 }],
+        phantoms_start: vec![Pos{ x:9, y:3 }, Pos { x:5, y:3 }],
+        phantoms_end:   vec![Pos{ x:0, y:0 }, Pos { x:1, y:0 }],
+        walls:          vec![
+            (Pos { x:2, y:4 }, Pos { x:5, y:4 }), (Pos { x:1, y:4 }, Pos { x:1, y:1 }), (Pos { x:6, y:4 }, Pos { x:9, y:4 }),
+            (Pos { x:1, y:1 }, Pos { x:2, y:1 }), (Pos { x:9, y:3 }, Pos { x:10, y:3 }), (Pos { x:9, y:3 }, Pos { x:9, y:1 }), (Pos { x:8, y:3 }, Pos { x:8, y:1 }),
+            (Pos { x:4, y:3 }, Pos { x:7, y:3 }), (Pos { x:2, y:3 }, Pos { x:3, y:3 }), (Pos { x:2, y:3 }, Pos { x:2, y:2 }),
+            (Pos { x:3, y:2 }, Pos { x:3, y:1 }), (Pos { x:3, y:1 }, Pos { x:6, y:1 }), (Pos { x:6, y:2 }, Pos { x:6, y:1 }),
+            (Pos { x:7, y:2 }, Pos { x:7, y:0 }), (Pos { x:3, y:2 }, Pos { x:4, y:2 }), (Pos { x:5, y:3 }, Pos { x:5, y:2 }),
+        ]
     };
     let (walls, mut pearls) = init_board(&gsettings);
     let walls = Arc::new(walls);
@@ -252,7 +253,7 @@ fn main() {
         // The previous position of pacman in tiles, and the directionnal order
         let pacman_order = ValueSignal::new(Box::new(
                 |a : (Pos,Directions), b : (Pos,Directions)| -> (Pos,Directions) { a }));
-        // The position in pixel of pacman
+        // The new position in tiles of pacman, or None if pacman doesn't move
         let pacman_position = ValueSignal::new(Box::new(
                 |a : Option<Pos>, b : Option<Pos>| -> Option<Pos> { if let None = a { b } else { a } }));
 
