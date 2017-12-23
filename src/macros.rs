@@ -43,6 +43,22 @@ macro_rules! arrow {
         map(|$x| $f).bind(arrow!($($y)+))
     );
 
+    (mv $x:ident => $f:block) => (
+        map(move |$x| $f)
+    );
+
+    (mv $x:pat => $f:block) => (
+        map(move |$x| $f)
+    );
+
+    (mv $x:ident => $f:block; $($y:tt)+) => (
+        map(move |$x| $f).bind(arrow!($($y)+))
+    );
+
+    (mv $x:pat => $f:block; $($y:tt)+) => (
+        map(move |$x| $f).bind(arrow!($($y)+))
+    );
+
     (fix $x:expr) => (
         fixpoint($x)
     );
