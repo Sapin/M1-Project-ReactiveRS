@@ -51,91 +51,108 @@ enum Directions {
 
 #[derive(Clone,Copy)]
 struct BoardCell {
-    pearl: CellContent,
     wall_up:    bool,
     wall_down:  bool,
     wall_left:  bool,
     wall_right: bool
 }
 
-type Board = Vec<Vec<BoardCell>>;
+type Walls  = Vec<Vec<BoardCell>>;
+type Pearls = Vec<Vec<CellContent>>;
 
-fn init_board(settings: &Settings) -> Board {
-    let mut board: Board = Vec::new();
+fn init_board(settings: &Settings) -> (Walls,Pearls) {
+    let mut walls:  Walls = Vec::new();
+    let mut pearls: Pearls = Vec::new();
     let wn : usize = settings.width;
     let hn : usize = settings.height;
     for x in 0..wn {
-        let mut col: Vec<BoardCell> = Vec::new();
+        let mut wcol: Vec<BoardCell> = Vec::new();
+        let mut pcol: Vec<CellContent> = Vec::new();
         for y in 0..hn {
             let cell: BoardCell = BoardCell {
-                pearl:      if y == 0 { CellContent::Empty } else { CellContent::WhitePearl },
                 wall_up:    y <= 1,
                 wall_down:  y == hn - 1 || y == 0,
                 wall_left:  x == 0,
                 wall_right: x == wn - 1
             };
-            col.push(cell);
+            wcol.push(cell);
+            pcol.push(if y == 0 { CellContent::Empty } else { CellContent::WhitePearl });
         }
-        board.push(col)
+        walls.push(wcol);
+        pearls.push(pcol);
     };
     for w in &settings.walls {
         let &(p1,p2) = w;
         if p1.x < p2.x {
-            board[p1.x][p1.y].wall_right = true;
-            board[p2.x][p2.y].wall_left  = true;
+            walls[p1.x][p1.y].wall_right = true;
+            walls[p2.x][p2.y].wall_left  = true;
         }
         if p1.x > p2.x {
-            board[p1.x][p1.y].wall_left  = true;
-            board[p2.x][p2.y].wall_right = true;
+            walls[p1.x][p1.y].wall_left  = true;
+            walls[p2.x][p2.y].wall_right = true;
         }
         if p1.y < p2.y {
-            board[p1.x][p1.y].wall_down  = true;
-            board[p2.x][p2.y].wall_up    = true;
+            walls[p1.x][p1.y].wall_down  = true;
+            walls[p2.x][p2.y].wall_up    = true;
         }
         if p1.y < p2.y {
-            board[p1.x][p1.y].wall_up    = true;
-            board[p2.x][p2.y].wall_down  = true;
+            walls[p1.x][p1.y].wall_up    = true;
+            walls[p2.x][p2.y].wall_down  = true;
         }
     };
     for yellow in &settings.yellow_pearls {
-        board[yellow.x][yellow.y].pearl = CellContent::YellowPearl;
+        pearls[yellow.x][yellow.y] = CellContent::YellowPearl;
     };
-    board
+    (walls,pearls)
 }
 
-fn draw_board(board: &Board, settings: &Settings, window: &mut PistonWindow<Sdl2Window>, ev: &Event) {
+#[derive(Clone)]
+struct DrawingData {
+    pacman:   Option<Pos>,
+    phantoms: Vec<Pos>,
+}
+
+fn compress_ddata(a : DrawingData, b : DrawingData) -> DrawingData {
+    DrawingData {
+        pacman:   if let None = a.pacman { b.pacman } else { a.pacman },
+        phantoms: [&a.phantoms[..], &b.phantoms[..]].concat(),
+    }
+}
+
+fn draw_board(walls: &Walls, pearls: &Pearls, settings: &Settings, ddata: &DrawingData,
+              window: &mut PistonWindow<Sdl2Window>, ev: &Event) {
     let cs = settings.cell_size;
     let div = 10;
     let wall_color = [0.2,0.2,1.0,1.0];
     window.draw_2d(ev, |context, graphics| {
         clear([0.0, 0.0, 0.1, 1.0], graphics);
-        for x in 0..board.len() {
-            for y in 0..board[x].len() {
-                if board[x][y].wall_up {
+        for x in 0..walls.len() {
+            for y in 0..walls[x].len() {
+                if walls[x][y].wall_up {
                     rectangle(wall_color,
                               [(x * cs) as f64, (y * cs) as f64, (cs) as f64, (cs / div) as f64],
                               context.transform,
                               graphics);
                 }
-                if board[x][y].wall_down {
+                if walls[x][y].wall_down {
                     rectangle(wall_color,
                               [(x * cs) as f64, (y * cs + (div-1) * cs / div) as f64, (cs) as f64, (cs / div) as f64],
                               context.transform,
                               graphics);
                 }
-                if board[x][y].wall_left {
+                if walls[x][y].wall_left {
                     rectangle(wall_color,
                               [(x * cs) as f64, (y * cs) as f64, (cs / div) as f64, (cs) as f64],
                               context.transform,
                               graphics);
                 }
-                if board[x][y].wall_right {
+                if walls[x][y].wall_right {
                     rectangle(wall_color,
                               [(x * cs + (div-1) * cs / div) as f64, (y * cs) as f64, (cs / div) as f64, (cs) as f64],
                               context.transform,
                               graphics);
                 }
-                match board[x][y].pearl {
+                match pearls[x][y] {
                     CellContent::WhitePearl  =>
                         { ellipse([1.0,1.0,0.0,1.0],
                                   ellipse::circle((x*cs + cs/2) as f64, (y*cs + cs/2) as f64, (cs/10) as f64),
@@ -150,9 +167,27 @@ fn draw_board(board: &Board, settings: &Settings, window: &mut PistonWindow<Sdl2
                         },
                     CellContent::Empty       => ()
                 }
+
+                if let &Some(pos) = &ddata.pacman {
+                    ellipse([1.0,1.0,1.0,1.0],
+                            ellipse::circle((pos.x*cs + cs/2) as f64,
+                                            (pos.y*cs + cs/2) as f64,
+                                            (cs/3) as f64),
+                            context.transform,
+                            graphics);
+                }
             }
         }
     });
+}
+
+fn can_move(pos: &Pos, dir: &Directions, walls: &Walls) -> bool {
+    match *dir {
+        Directions::Up    => !walls[pos.x][pos.y].wall_up,
+        Directions::Down  => !walls[pos.x][pos.y].wall_down,
+        Directions::Left  => !walls[pos.x][pos.y].wall_left,
+        Directions::Right => !walls[pos.x][pos.y].wall_right,
+    }
 }
 
 fn main() {
@@ -163,20 +198,25 @@ fn main() {
         start_pos: Pos { x: 0, y:0 },
         animation_len: 100,
         invincible_len: 100,
-        yellow_pearls: Vec::new(),
+        yellow_pearls: vec![Pos{ x:1, y:1 }],
         phantoms: Vec::new(),
         walls: Vec::new()
     };
-    let mut board : Board = init_board(&gsettings);
+    let ddata : DrawingData = DrawingData {
+        pacman: Some(Pos{ x:0, y:0 }),
+        phantoms: Vec::new()
+    };
+    let (walls, mut pearls) = init_board(&gsettings);
 
-    let glutin_window = WindowSettings::new("ReactivePacman", (((gsettings.width+1) * gsettings.cell_size) as u32,
-                                                               ((gsettings.height+1) * gsettings.cell_size) as u32))
+    let glutin_window = WindowSettings::new("ReactivePacman",
+                                            (((gsettings.width+1) * gsettings.cell_size) as u32,
+                                            ((gsettings.height+1) * gsettings.cell_size) as u32))
         .exit_on_esc(false).resizable(false).srgb(false)
         .build().unwrap();
     let mut window: PistonWindow<Sdl2Window> = PistonWindow::new(OpenGL::V3_2, 0, glutin_window);
 
     while let Some(event) = window.next() {
-        draw_board(&board, &gsettings, &mut window, &event);
+        draw_board(&walls, &pearls, &gsettings, &ddata, &mut window, &event);
     }
 }
 
